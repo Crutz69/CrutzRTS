@@ -125,3 +125,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   type: 1
   value: 100
+  isTargeted: 0
+  targetedBy: {fileID: 0}

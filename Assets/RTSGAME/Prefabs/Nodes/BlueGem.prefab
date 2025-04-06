@@ -123,5 +123,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 93dbbd0cc4d54314b82dd7a9ba92a236, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  type: 3
-  value: 100
+  type: 2
+  value: 250
+  isTargeted: 0
+  targetedBy: {fileID: 0}
