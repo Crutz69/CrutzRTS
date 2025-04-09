@@ -1,125 +1,161 @@
-// Fil: HarvestableCrystal.cs
+// Assets/RTSGAME/Scripts/World/HarvestableCrystal.cs
 using UnityEngine;
+using Mirror;
 
-// Enum kan ligga här eller i en egen fil
-// Se till att du bara har EN definition av denna enum i ditt projekt
-public enum CrystalType { None, Green, Blue, Red }
-
-public class HarvestableCrystal : MonoBehaviour
+namespace RTSGAME
 {
-    [Header("Crystal Properties")]
-    [Tooltip("Vilken typ av kristall detta är.")]
-    public CrystalType type = CrystalType.Green;
+    // Flytta enum till en egen fil eller gemensam plats?
+    // public enum CrystalType { None, Green, Blue, Red }
 
-    [Tooltip("Hur mycket resurs denna kristall ger.")]
-    public int value = 100; // Sätts per prefab eller dynamiskt
-
-    // --- Variabler för Reservation (Alternativ 1) ---
-    [Header("State (Internal)")]
-    [Tooltip("Är denna kristall just nu måltavla för en Harvester?")]
-    [ReadOnly] // Gör den skrivskyddad i inspektorn för tydlighet
-    public bool isTargeted = false;
-
-    [Tooltip("Vilken Harvester siktar på denna kristall?")]
-    [ReadOnly]
-    public HarvesterUnit targetedBy = null;
-    // --- Slut på variabler för Reservation ---
-
-
-    // Valfritt: Referens till fältet som äger den
-    // public ResourceFieldController ownerField = null;
-
-    // --- Metoder för Reservation (Alternativ 1) ---
-
-    /// <summary>
-    /// Försöker reservera denna kristall för en specifik Harvester.
-    /// </summary>
-    /// <param name="harvester">Harvestern som försöker reservera.</param>
-    /// <returns>True om reservationen lyckades, false om den redan var reserverad.</returns>
-    public bool Reserve(HarvesterUnit harvester)
+    [RequireComponent(typeof(NetworkIdentity))]
+    [RequireComponent(typeof(Collider))]
+    public class HarvestableCrystal : NetworkBehaviour
     {
-        if (!isTargeted && harvester != null)
+        [Header("Crystal Properties")]
+        [Tooltip("Vilken typ av kristall detta är.")]
+        [SyncVar(hook = nameof(OnTypeChanged))]
+        public CrystalType crystalType = CrystalType.Green;
+
+        [Tooltip("Hur mycket resurs denna kristall ger.")]
+        [SyncVar]
+        public int valuePerUnit = 100;
+
+        [SyncVar(hook = nameof(OnTargetedChanged))]
+        private uint targetedByNetId = 0; // Håll denna privat
+
+        // Lägg till denna publika property för att LÄSA värdet utifrån:
+        public uint TargetedByNetId => targetedByNetId;
+        // Detta är en förkortad syntax för: public uint TargetedByNetId { get { return targetedByNetId; } }
+
+        // Property för att enkelt kolla om den är upptagen finns redan:
+        public bool IsTargeted => targetedByNetId != 0;
+
+        // --- Mirror Callbacks ---
+
+        public override void OnStartServer()
         {
-            isTargeted = true;
-            targetedBy = harvester;
-            // Debug.Log($"Crystal {gameObject.name} RESERVED by {harvester.name}");
-            return true; // Reservation lyckades
-        }
-        // Debug.LogWarning($"Crystal {gameObject.name} FAILED TO RESERVE for {harvester?.name}. Already targeted by: {targetedBy?.name}");
-        return false; // Redan reserverad eller ogiltig harvester
-    }
-
-    /// <summary>
-    /// Släpper reservationen för denna kristall, men bara om den angivna Harvestern är den som har reserverat den.
-    /// </summary>
-    /// <param name="harvester">Harvestern som försöker släppa reservationen.</param>
-    public void Release(HarvesterUnit harvester)
-    {
-        // Bara den som reserverade får släppa (viktigt!)
-        if (targetedBy == harvester)
-        {
-            isTargeted = false;
-            targetedBy = null;
-            // Debug.Log($"Crystal {gameObject.name} RELEASED by {harvester.name}");
-        }
-        // else { Debug.LogWarning($"Crystal {gameObject.name} release attempt by {harvester?.name} IGNORED. Current target: {targetedBy?.name}"); }
-    }
-
-    // --- Slut på metoder för Reservation ---
-
-
-    // Gizmo-kod (behålls som den är)
-    void OnDrawGizmos()
-    {
-        Gizmos.color = GetGizmoColor(type);
-        // Visa om den är targetad? (Valfritt extra)
-        if (isTargeted)
-        {
-            Gizmos.color = Color.yellow; // Gör den gul om den är target
+            base.OnStartServer();
+            targetedByNetId = 0; // Säkerställ att den är ledig vid start
         }
 
-        Collider col = GetComponent<Collider>();
-        if (col != null)
+        public override void OnStartClient()
         {
-            Gizmos.DrawSphere(col.bounds.center, col.bounds.extents.magnitude * 0.3f);
-            if (isTargeted) Gizmos.DrawWireSphere(col.bounds.center, col.bounds.extents.magnitude * 0.35f); // Extra ring
+            base.OnStartClient();
+            // Klienten reagerar på initiala SyncVar-värden via hooks
+            OnTypeChanged(crystalType, crystalType);
+            OnTargetedChanged(0, targetedByNetId);
         }
-        else
+
+        // --- SyncVar Hooks (Client-side) ---
+
+        void OnTypeChanged(CrystalType oldType, CrystalType newType)
         {
-            Gizmos.DrawSphere(transform.position, 0.3f);
-            if (isTargeted) Gizmos.DrawWireSphere(transform.position, 0.35f); // Extra ring
+            UpdateVisuals();
         }
-    }
 
-    Color GetGizmoColor(CrystalType crystalType)
-    {
-        switch (crystalType)
+        void OnTargetedChanged(uint oldTargetNetId, uint newTargetNetId)
         {
-            case CrystalType.Green: return Color.green;
-            case CrystalType.Blue: return Color.blue;
-            case CrystalType.Red: return Color.red;
-            default: return Color.white;
+            UpdateVisuals();
+            // Debug.Log($"Crystal {netId} targeted status changed to: {(newTargetNetId != 0)} by {newTargetNetId}");
         }
-    }
 
-    // Helper för ReadOnly attributet (lägg till detta om du inte redan har det i ett annat script)
-    // Om du redan har detta någonstans, kan du ta bort det härifrån.
-    public class ReadOnlyAttribute : PropertyAttribute { }
+        // Uppdaterar utseende baserat på typ och om den är reserverad
+        void UpdateVisuals()
+        {
+            Renderer rend = GetComponentInChildren<Renderer>();
+            if (rend != null)
+            {
+                Color baseColor = GetGizmoColor(crystalType);
+                // Gör den lite mörkare/gråare om targetad för visuell feedback
+                rend.material.color = IsTargeted ? Color.Lerp(baseColor, Color.grey, 0.5f) : baseColor;
+            }
+        }
 
+        // --- Commands (Called by Harvester Client, Run on Server) ---
+
+        // En Harvester anropar detta via sitt NetworkPlayer för att försöka reservera
+        [Command(requiresAuthority = false)] // Vem som helst kan försöka reservera (servern validerar)
+        public void Cmd_RequestReserve(NetworkIdentity requestingHarvesterIdentity)
+        {
+            if (requestingHarvesterIdentity == null) return;
+            Server_TryReserve(requestingHarvesterIdentity.netId);
+            // Servern returnerar inget direkt, Harvestern får kolla SyncVar eller få RPC?
+            // Eller så får Harvester-kommandot som anropade detta vänta på Server_TryReserve.
+            // Låt oss hålla det enkelt: Harvester anropar, servern sätter SyncVar.
+        }
+
+        // En Harvester anropar detta via sitt NetworkPlayer för att släppa
+        [Command(requiresAuthority = false)] // Vem som helst kan försöka släppa (servern validerar)
+        public void Cmd_RequestRelease(NetworkIdentity requestingHarvesterIdentity)
+        {
+            if (requestingHarvesterIdentity == null) return;
+            Server_TryRelease(requestingHarvesterIdentity.netId);
+        }
+
+
+        // --- Server-Side Reservation Logic ---
+
+        [Server]
+        public bool Server_IsAvailable()
+        {
+            return targetedByNetId == 0;
+        }
+
+        // Försöker reservera. Returnerar true om det lyckades.
+        [Server]
+        public bool Server_TryReserve(uint harvesterNetId)
+        {
+            if (targetedByNetId == 0 && harvesterNetId != 0)
+            {
+                targetedByNetId = harvesterNetId; // Reservation lyckades! SyncVar uppdaterar klienter.
+                // Debug.Log($"Crystal {netId} RESERVED by Harvester {harvesterNetId}");
+                return true;
+            }
+            // Om redan reserverad av SAMMA harvester, är det ok? Ja.
+            if (targetedByNetId == harvesterNetId) return true;
+
+            // Annars, redan upptagen av någon annan.
+            // Debug.LogWarning($"Crystal {netId} FAILED TO RESERVE for {harvesterNetId}. Already targeted by: {targetedByNetId}");
+            return false;
+        }
+
+        // Försöker släppa. Returnerar true om det lyckades.
+        [Server]
+        public bool Server_TryRelease(uint harvesterNetId)
+        {
+            // Bara den som reserverade får släppa
+            if (targetedByNetId == harvesterNetId && harvesterNetId != 0)
+            {
+                targetedByNetId = 0; // Gör tillgänglig igen. SyncVar uppdaterar klienter.
+                // Debug.Log($"Crystal {netId} RELEASED by Harvester {harvesterNetId}");
+                return true;
+            }
+            return false;
+        }
+
+        // Anropas av Harvester server-side när den samlat klart
+        [Server]
+        public void Server_HarvestComplete()
+        {
+            Debug.Log($"Crystal {netId} harvested, destroying.");
+            // Förstör objektet på nätverket
+            NetworkServer.Destroy(gameObject);
+        }
+
+
+        // --- Gizmos & Helpers ---
+        void OnDrawGizmos()
+        {
+            Gizmos.color = GetGizmoColor(crystalType);
+            if (IsTargeted) { Gizmos.color = Color.yellow; }
+            Collider col = GetComponent<Collider>();
+            if (col != null) { Gizmos.DrawSphere(col.bounds.center, col.bounds.extents.magnitude * 0.3f); if (IsTargeted) Gizmos.DrawWireSphere(col.bounds.center, col.bounds.extents.magnitude * 0.35f); }
+            else { Gizmos.DrawSphere(transform.position, 0.3f); if (IsTargeted) Gizmos.DrawWireSphere(transform.position, 0.35f); }
+        }
+        Color GetGizmoColor(CrystalType ct) { /* ... som tidigare ... */ return Color.white; }
+        public class ReadOnlyAttribute : PropertyAttribute { }
 #if UNITY_EDITOR
-    [UnityEditor.CustomPropertyDrawer(typeof(ReadOnlyAttribute))]
-    public class ReadOnlyDrawer : UnityEditor.PropertyDrawer
-    {
-        public override void OnGUI(Rect position, UnityEditor.SerializedProperty property, GUIContent label)
-        {
-            GUI.enabled = false; // Gör fältet grått
-            UnityEditor.EditorGUI.PropertyField(position, property, label, true);
-            GUI.enabled = true; // Återställ
-        }
-        public override float GetPropertyHeight(UnityEditor.SerializedProperty property, GUIContent label)
-        {
-            return UnityEditor.EditorGUI.GetPropertyHeight(property, label, true);
-        }
-    }
+        [UnityEditor.CustomPropertyDrawer(typeof(ReadOnlyAttribute))] public class ReadOnlyDrawer : UnityEditor.PropertyDrawer { public override void OnGUI(Rect position, UnityEditor.SerializedProperty property, GUIContent label) { GUI.enabled = false; UnityEditor.EditorGUI.PropertyField(position, property, label, true); GUI.enabled = true; } public override float GetPropertyHeight(UnityEditor.SerializedProperty property, GUIContent label) { return UnityEditor.EditorGUI.GetPropertyHeight(property, label, true); } }
 #endif
+    }
 }

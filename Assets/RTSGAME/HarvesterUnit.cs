@@ -1,662 +1,436 @@
-// Fil: HarvesterUnit.cs
+// Assets/RTSGAME/Scripts/Units/HarvesterUnit.cs
+using Mirror;
 using UnityEngine;
-using UnityEngine.AI;
-using UnityEngine.UI;
+using UnityEngine.UI; // För Slider/Image
+using System.Collections;
+using System.Collections.Generic; // För List<>
 
-[RequireComponent(typeof(Unit))]
-[RequireComponent(typeof(NavMeshAgent))]
-[RequireComponent(typeof(Animator))]
-public class HarvesterUnit : MonoBehaviour
+namespace RTSGAME
 {
-    [Header("Harvester Settings")]
-    [Tooltip("Max antal kristaller Golemen kan bära.")]
-    public int carryCapacity = 5;
-    [Tooltip("Hur nära en kristall måste vara för att plockas upp.")]
-    public float pickupRange = 1.0f;
-    [Tooltip("Hur lång tid (sekunder) upplockningsanimationen + cooldown tar.")]
-    public float pickupDuration = 1.5f;
+    // Enum bör ligga globalt eller i egen fil: CrystalType.cs
+    // public enum CrystalType { None, Green, Blue, Red }
 
-    [Header("Inventory Bar")]
-    [Tooltip("Dra in din prefab för inventarie-mätaren (blå slider) här.")]
-    public GameObject inventoryBarPrefab;
-
-    [Header("State (Internal)")]
-    [Tooltip("Antal kristaller som bärs just nu.")]
-    public int currentLoad = 0;
-    private CrystalType carriedCrystalType = CrystalType.None;
-    public enum HarvesterState { Idle, MovingToCrystal, Gathering, MovingToRefinery, PositioningForDropOff, WaitingForRefinery, Depositing }
-    public HarvesterState currentState = HarvesterState.Idle;
-
-    // Referenser
-    private Unit unitInfo;
-    private NavMeshAgent agent;
-    private Animator animator;
-    private HarvestableCrystal targetCrystal = null; // Ändrad från public till private
-    private RefineryBuilding targetRefinery = null; // Ändrad från public till private
-    private Slider inventoryBarSlider = null;
-    private Image inventoryBarFillImage = null;
-
-    // Timers
-    private float checkRefineryTimer = 0f;
-    private float checkInterval = 0.5f;
-    private float gatherTimer = 0f;
-
-    // Cache
-    private PlayerResourceManager resourceManager;
-
-    // Animator Parameter IDs
-    private static readonly int IsMiningParam = Animator.StringToHash("IsMining");
-    private static readonly int SpeedParam = Animator.StringToHash("Forward");
-
-    void Awake()
+    [RequireComponent(typeof(UnitMovement))] // Ärver Unit, som kräver resten
+    public class HarvesterUnit : Unit // Ärver från Unit
     {
-        unitInfo = GetComponent<Unit>();
-        agent = GetComponent<NavMeshAgent>();
-        animator = GetComponent<Animator>();
-    }
+        [Header("Harvester Settings")]
+        [SerializeField] private int carryCapacity = 5;
+        [SerializeField] private float pickupRange = 2f;
+        [SerializeField] private float pickupDuration = 1.5f; // Tid att samla EN kristall
 
-    void Start()
-    {
-        resourceManager = FindAnyObjectByType<PlayerResourceManager>();
-        if (resourceManager == null) { Debug.LogError($"Harvester '{gameObject.name}' could not find PlayerResourceManager!", this); }
-        SetupInventoryBar();
-        UpdateInventoryBar();
-        SetMiningAnimation(false);
-        GoToIdleState(false); // Starta i Idle state korrekt
-    }
+        // State Machine (specifik för Harvester)
+        public enum HarvesterState { Idle, MovingToPosition, MovingToCrystal, Harvesting, MovingToRefinery, Depositing }
+        [SyncVar(hook = nameof(OnStateChangedHook))]
+        private HarvesterState currentState = HarvesterState.Idle;
 
-    void SetupInventoryBar()
-    {
-        if (unitInfo == null || inventoryBarPrefab == null) { if (inventoryBarPrefab == null) Debug.LogWarning("Inventory Bar Prefab not assigned.", this); return; }
-        Canvas sharedCanvas = unitInfo.GetHealthBarCanvas();
-        if (sharedCanvas != null)
+        // Inventarie (synkas till klienter för UI/visuella effekter)
+        [SyncVar(hook = nameof(OnInventoryChangedHook))]
+        private int currentLoad = 0;
+        [SyncVar(hook = nameof(OnInventoryChangedHook))] // Ändra färg på UI/effekt
+        private CrystalType carriedCrystalType = CrystalType.None;
+
+        // Mål (NetId synkas, lokal cache för script-referens)
+        [SyncVar] private uint targetCrystalNetId = 0;
+        [SyncVar] private uint targetRefineryNetId = 0;
+        private HarvestableCrystal currentTargetCrystalCache = null; // Klient & server cache
+        private RefineryBuilding currentTargetRefineryCache = null; // Klient & server cache
+
+        [Header("Target Finding")]
+        [Tooltip("Layers containing harvestable resources (e.g., crystals). Set in Inspector!")]
+        [SerializeField] private LayerMask resourceLayerMask;
+        [Tooltip("Layer containing refineries. Set in Inspector!")]
+        [SerializeField] private LayerMask refineryLayerMask;
+        [Tooltip("How far the harvester searches for targets initially.")]
+        [SerializeField] private float initialSearchRadius = 50f;
+        [Tooltip("Maximum colliders to check in one physics query.")]
+        [SerializeField] private int maxQueryColliders = 32;
+        // Återanvändbar array för fysikresultat (server-side)
+        private Collider[] queryResults;
+
+        [Header("Harvester UI")]
+        [SerializeField] private Slider inventoryBarSlider; // Koppla i prefab
+        [SerializeField] private Image inventoryBarFillImage; // Koppla i prefab
+        [SerializeField] private GameObject inventoryBarCanvasGO; // Koppla Canvas i prefab
+
+        // Server-side timer/coroutine
+        private Coroutine server_workCoroutine = null;
+
+
+        // --- Mirror Callbacks & Unity ---
+
+        public override void OnStartServer()
         {
-            GameObject inventoryBarInstance = Instantiate(inventoryBarPrefab, sharedCanvas.transform);
-            inventoryBarSlider = inventoryBarInstance.GetComponent<Slider>();
-            if (inventoryBarSlider != null)
-            {
-                Transform fillTransform = inventoryBarSlider.transform.Find("Fill Area/Fill");
-                if (fillTransform != null) { inventoryBarFillImage = fillTransform.GetComponent<Image>(); }
-                if (inventoryBarFillImage == null) { Debug.LogError("Could not find Fill Image on Inventory Bar!", inventoryBarSlider.gameObject); }
+            base.OnStartServer();
+            currentState = HarvesterState.Idle;
+            currentLoad = 0;
+            carriedCrystalType = CrystalType.None;
+            targetCrystalNetId = 0;
+            targetRefineryNetId = 0;
+            queryResults = new Collider[maxQueryColliders]; // Initiera arrayen på servern
+            // TODO: Starta AI:n på servern om detta är en AI-harvester?
+            // if (isAIControlled) Server_FindWork();
+        }
 
-                // Positionera relativt till Health Bar (om den finns)
-                RectTransform healthBarRect = null;
-                Slider[] slidersInParent = sharedCanvas.GetComponentsInChildren<Slider>();
-                foreach (Slider slider in slidersInParent)
+        public override void OnStartClient()
+        {
+            base.OnStartClient();
+            // Initial UI setup baserat på SyncVars
+            OnInventoryChangedHook(0, currentLoad, CrystalType.None, carriedCrystalType);
+            OnStateChangedHook(currentState, currentState); // Tvinga initial hook call
+            // Försök hitta mål om state kräver det
+            if (targetCrystalNetId != 0) StartCoroutine(FindTargetCrystalLocally(targetCrystalNetId));
+            if (targetRefineryNetId != 0) StartCoroutine(FindTargetRefineryLocally(targetRefineryNetId));
+        }
+
+
+        // --- SyncVar Hooks (Client-side) ---
+
+        void OnStateChangedHook(HarvesterState oldState, HarvesterState newState)
+        {
+            // Debug.Log($"Harvester {netId} client state: {oldState} -> {newState}");
+            if (newState == HarvesterState.Idle) { currentTargetCrystalCache = null; currentTargetRefineryCache = null; }
+            UpdateAnimationHarvester(oldState, newState);
+        }
+
+        void OnInventoryChangedHook(int oldLoad, int newLoad, CrystalType oldType, CrystalType newType)
+        {
+            UpdateInventoryBarUI(newLoad, newType);
+        }
+
+        // --- Animation & UI (Client-side) ---
+
+        void UpdateAnimationHarvester(HarvesterState oldState, HarvesterState newState)
+        {
+            if (animator == null) return; // animator ärvs från Unit
+            bool isMoving = (newState == HarvesterState.MovingToCrystal || newState == HarvesterState.MovingToRefinery || newState == HarvesterState.MovingToPosition);
+            animator.SetBool("IsMoving", isMoving);
+            animator.SetBool("IsHarvesting", newState == HarvesterState.Harvesting);
+            // float speed = networkTransform != null ? networkTransform.calculateVelocity.magnitude : 0f;
+            // animator.SetFloat("Forward", speed, 0.1f, Time.deltaTime);
+        }
+
+        void UpdateInventoryBarUI(int load, CrystalType type)
+        {
+            if (inventoryBarSlider == null || inventoryBarCanvasGO == null) return;
+            bool showBar = (load > 0);
+            inventoryBarCanvasGO.SetActive(showBar);
+            if (!showBar) return;
+            inventoryBarSlider.value = (carryCapacity > 0) ? Mathf.Clamp01((float)load / carryCapacity) : 0f;
+            if (inventoryBarFillImage != null) { inventoryBarFillImage.color = GetCrystalColor(type); }
+        }
+        Color GetCrystalColor(CrystalType type)
+        {
+            switch (type) { case CrystalType.Green: return Color.green; case CrystalType.Blue: return Color.blue; case CrystalType.Red: return Color.red; default: return Color.grey; }
+        }
+
+
+        // --- Commands (Called by Local Player via NetworkPlayer, Run on Server) ---
+
+        [Command]
+        public void Cmd_OrderHarvest(NetworkIdentity resourceIdentity)
+        {
+            if (!IsOwner(connectionToClient)) return;
+            if (resourceIdentity == null) return;
+            HarvestableCrystal targetCrystal = resourceIdentity.GetComponent<HarvestableCrystal>();
+            if (targetCrystal == null) return;
+            if (currentLoad >= carryCapacity) { Server_FindRefineryAndMove(); return; }
+
+            if (targetCrystal.Server_TryReserve(this.netIdentity))
+            {
+                Server_TransitionToState(HarvesterState.MovingToCrystal, resourceIdentity.netId, 0);
+                movementComponent?.Server_SetDestination(targetCrystal.transform.position);
+            }
+            else { Target_AssignTaskFailed("Crystal is already targeted."); Server_FindWork(); }
+        }
+
+        [Command]
+        public void Cmd_OrderDeposit(NetworkIdentity refineryIdentity)
+        {
+            if (!IsOwner(connectionToClient)) return;
+            if (refineryIdentity == null) return;
+            RefineryBuilding targetRefinery = refineryIdentity.GetComponent<RefineryBuilding>();
+            if (targetRefinery == null) return;
+            if (currentLoad <= 0) return;
+            // if(targetRefinery.OwnerNetId != this.ownerNetId) return; // Validera ägarskap?
+
+            Server_TransitionToState(HarvesterState.MovingToRefinery, 0, refineryIdentity.netId);
+            Vector3 dest = targetRefinery.dockingPoint != null ? targetRefinery.dockingPoint.position : targetRefinery.transform.position;
+            movementComponent?.Server_SetDestination(dest);
+        }
+
+        [Command]
+        public void Cmd_GoToIdle()
+        {
+            if (!IsOwner(connectionToClient)) return;
+            Server_TransitionToState(HarvesterState.Idle, 0, 0);
+        }
+
+        [Command]
+        public void Cmd_MoveToPosition(Vector3 destination)
+        {
+            if (!IsOwner(connectionToClient)) return;
+            Server_TransitionToState(HarvesterState.MovingToPosition, 0, 0);
+            movementComponent?.Server_SetDestination(destination);
+        }
+
+
+        // --- Server-Side Logic ---
+
+        [Server]
+        private void Server_TransitionToState(HarvesterState newState, uint crystalTargetId, uint refineryTargetId)
+        {
+            HarvesterState oldState = currentState;
+            Server_StopCurrentWorkCoroutine(true);
+
+            currentState = newState;
+            targetCrystalNetId = crystalTargetId;
+            targetRefineryNetId = refineryTargetId;
+            currentTargetCrystalCache = null;
+            currentTargetRefineryCache = null;
+
+            if (targetCrystalNetId != 0 && NetworkServer.spawned.TryGetValue(targetCrystalNetId, out var id1)) currentTargetCrystalCache = id1.GetComponent<HarvestableCrystal>();
+            if (targetRefineryNetId != 0 && NetworkServer.spawned.TryGetValue(targetRefineryNetId, out var id2)) currentTargetRefineryCache = id2.GetComponent<RefineryBuilding>();
+
+            if (newState == HarvesterState.Idle || newState == HarvesterState.MovingToPosition)
+            {
+                movementComponent?.Server_StopMovement();
+            }
+        }
+
+        [Server]
+        private void Server_StopCurrentWorkCoroutine(bool releaseCrystal)
+        {
+            if (server_workCoroutine != null) { StopCoroutine(server_workCoroutine); server_workCoroutine = null; }
+            if (releaseCrystal && (currentState == HarvesterState.MovingToCrystal || currentState == HarvesterState.Harvesting) && currentTargetCrystalCache != null)
+            {
+                currentTargetCrystalCache.Server_TryRelease(this.netId);
+            }
+        }
+
+        [Server]
+        public override void OnMovementArrival()
+        {
+            // base.OnMovementArrival();
+            Debug.Log($"Harvester {netId} arrived. State: {currentState}");
+            switch (currentState)
+            {
+                case HarvesterState.MovingToCrystal: Server_StartGathering(); break;
+                case HarvesterState.MovingToRefinery: Server_AttemptDeposit(); break;
+                case HarvesterState.MovingToPosition: Server_TransitionToState(HarvesterState.Idle, 0, 0); break;
+                default: movementComponent?.Server_StopMovement(); break;
+            }
+        }
+
+        [Server]
+        private void Server_StartGathering()
+        {
+            if (targetCrystalNetId == 0 || !NetworkServer.spawned.TryGetValue(targetCrystalNetId, out var id)) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
+            currentTargetCrystalCache = id.GetComponent<HarvestableCrystal>();
+            if (currentTargetCrystalCache == null) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
+
+            if (currentTargetCrystalCache.TargetedByNetId != this.netId) { Debug.LogWarning("Lost reservation."); Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
+            float distance = Vector3.Distance(transform.position, currentTargetCrystalCache.transform.position);
+            if (distance > pickupRange * 1.1f) { Debug.LogWarning("Too far to gather."); Server_TransitionToState(HarvesterState.MovingToCrystal, targetCrystalNetId, 0); movementComponent?.Server_SetDestination(currentTargetCrystalCache.transform.position); return; }
+
+            Server_TransitionToState(HarvesterState.Harvesting, targetCrystalNetId, 0);
+            movementComponent?.Server_StopMovement();
+            Server_StartWorkCoroutine(HarvestTimer());
+        }
+
+        // Server Coroutine
+        [Server]
+        private IEnumerator HarvestTimer()
+        {
+            HarvestableCrystal target = currentTargetCrystalCache;
+            if (target == null) { Debug.LogError($"Harvester {netId} HarvestTimer started with null target!"); Server_TransitionToState(HarvesterState.Idle, 0, 0); server_workCoroutine = null; yield break; }
+            uint harvestingTargetId = target.netId;
+            Debug.Log($"Harvester {netId} starting harvest timer ({pickupDuration}s) for {harvestingTargetId}");
+            yield return new WaitForSeconds(pickupDuration);
+
+            if (currentState == HarvesterState.Harvesting && targetCrystalNetId == harvestingTargetId) // Använd targetCrystalNetId här!
+            {
+                HarvestableCrystal finalTargetCrystal = null;
+                if (NetworkServer.spawned.TryGetValue(harvestingTargetId, out var id)) finalTargetCrystal = id.GetComponent<HarvestableCrystal>();
+
+                // Använd propertyn TargetedByNetId här!
+                if (finalTargetCrystal != null && finalTargetCrystal.TargetedByNetId == this.netId)
                 {
-                    if (slider != inventoryBarSlider && slider.GetComponentInParent<Unit>() == unitInfo)
-                    { // Se till att det är vår health bar
-                        healthBarRect = slider.GetComponent<RectTransform>();
-                        break;
+                    Server_CompleteGathering(finalTargetCrystal);
+                }
+                else { Debug.LogWarning($"Target {harvestingTargetId} invalid/lost reserve during timer."); Server_FindWork(); }
+            }
+            else { Debug.Log($"State/target changed during harvest timer."); }
+            server_workCoroutine = null;
+        }
+
+
+        [Server]
+        private void Server_CompleteGathering(HarvestableCrystal crystal)
+        {
+            if (crystal == null) return;
+            CrystalType gatheredType = crystal.crystalType;
+            if (currentLoad < carryCapacity && (carriedCrystalType == CrystalType.None || carriedCrystalType == gatheredType))
+            {
+                if (carriedCrystalType == CrystalType.None) { carriedCrystalType = gatheredType; }
+                currentLoad++;
+                // Debug.Log($"Harvester {netId} gathered crystal {crystal.netId}. Load: {currentLoad}/{carryCapacity}. Type: {carriedCrystalType}");
+                crystal.Server_HarvestComplete();
+                currentTargetCrystalCache = null; targetCrystalNetId = 0;
+                Server_FindWork();
+            }
+            else
+            {
+                Debug.LogWarning($"Harvester {netId} could not gather crystal {crystal.netId}. Load/Type mismatch?");
+                crystal.Server_TryRelease(this.netId);
+                Server_FindWork();
+            }
+        }
+
+        [Server]
+        private void Server_AttemptDeposit()
+        {
+            if (targetRefineryNetId == 0 || !NetworkServer.spawned.TryGetValue(targetRefineryNetId, out var id)) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
+            currentTargetRefineryCache = id.GetComponent<RefineryBuilding>();
+            if (currentTargetRefineryCache == null) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
+
+            Vector3 targetPos = currentTargetRefineryCache.dockingPoint != null ? currentTargetRefineryCache.dockingPoint.position : currentTargetRefineryCache.transform.position;
+            float distance = Vector3.Distance(transform.position, targetPos);
+            // Använd interactionRange från ConstructionWorker här, eller egen variabel
+            float depositRange = 2.0f; // Exempelvärde
+            if (distance > depositRange * 1.1f) { Server_TransitionToState(HarvesterState.MovingToRefinery, 0, targetRefineryNetId); movementComponent?.Server_SetDestination(targetPos); return; }
+
+            bool accepted = currentTargetRefineryCache.Server_RequestDeposit(this.netIdentity, currentLoad, carriedCrystalType);
+            if (accepted) { Server_TransitionToState(HarvesterState.Depositing, 0, targetRefineryNetId); movementComponent?.Server_StopMovement(); }
+            else { Debug.Log($"Deposit denied by refinery {targetRefineryNetId}. Idle."); Server_TransitionToState(HarvesterState.Idle, 0, 0); }
+        }
+
+        [Server]
+        public void Server_AcknowledgeDepositComplete()
+        {
+            Debug.Log($"Harvester {netId} deposit acknowledged by server.");
+            if (currentState == HarvesterState.Depositing)
+            {
+                currentLoad = 0;
+                carriedCrystalType = CrystalType.None;
+                Server_FindWork();
+            }
+        }
+
+        // Server-metod för att hitta jobb (kristall eller refinery)
+        [Server]
+        public void Server_FindWork()
+        {
+            Server_StopCurrentWorkCoroutine(true);
+
+            if (currentLoad >= carryCapacity)
+            {
+                Server_FindRefineryAndMove();
+            }
+            else
+            {
+                HarvestableCrystal targetCrystal = null;
+                if (carriedCrystalType != CrystalType.None)
+                {
+                    targetCrystal = Server_FindClosestAvailableCrystalOfType(carriedCrystalType);
+                }
+                if (targetCrystal == null)
+                {
+                    if (currentLoad > 0) { Server_FindRefineryAndMove(); return; } // Om vi har last men inte hittar mer
+                    carriedCrystalType = CrystalType.None; currentLoad = 0;
+                    targetCrystal = Server_FindClosestAvailableCrystal();
+                }
+
+                if (targetCrystal != null)
+                {
+                    if (targetCrystal.Server_TryReserve(this.netIdentity))
+                    {
+                        Server_TransitionToState(HarvesterState.MovingToCrystal, targetCrystal.netId, 0);
+                        movementComponent?.Server_SetDestination(targetCrystal.transform.position);
+                    }
+                    else { Server_TransitionToState(HarvesterState.Idle, 0, 0); } // Race condition
+                }
+                else { Server_TransitionToState(HarvesterState.Idle, 0, 0); } // Inget jobb alls
+            }
+        }
+
+        // --- Server Find Methods (Använder Physics Query) ---
+        [Server]
+        private HarvestableCrystal Server_FindClosestAvailableCrystal()
+        {
+            return FindClosestCrystalInternal(CrystalType.None);
+        }
+        [Server]
+        private HarvestableCrystal Server_FindClosestAvailableCrystalOfType(CrystalType type)
+        {
+            if (type == CrystalType.None) return Server_FindClosestAvailableCrystal();
+            return FindClosestCrystalInternal(type);
+        }
+        [Server]
+        private HarvestableCrystal FindClosestCrystalInternal(CrystalType requiredType)
+        {
+            if (queryResults == null) queryResults = new Collider[maxQueryColliders]; // Initiera om null
+            int hitCount = Physics.OverlapSphereNonAlloc(transform.position, initialSearchRadius, queryResults, resourceLayerMask);
+            HarvestableCrystal closestCrystal = null; float closestDistSqr = float.MaxValue;
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (queryResults[i].TryGetComponent<HarvestableCrystal>(out HarvestableCrystal crystal))
+                {
+                    if (crystal.Server_IsAvailable() && (requiredType == CrystalType.None || crystal.crystalType == requiredType))
+                    {
+                        float distSqr = (crystal.transform.position - transform.position).sqrMagnitude;
+                        if (distSqr < closestDistSqr) { closestDistSqr = distSqr; closestCrystal = crystal; }
                     }
                 }
-                // Om health bar hittas, positionera under den, annars i mitten.
-                float yOffset = 0f;
-                if (healthBarRect != null)
+            }
+            return closestCrystal;
+        }
+        [Server]
+        private void Server_FindRefineryAndMove()
+        {
+            if (queryResults == null) queryResults = new Collider[maxQueryColliders];
+            int hitCount = Physics.OverlapSphereNonAlloc(transform.position, initialSearchRadius * 2, queryResults, refineryLayerMask); // Sök längre
+            RefineryBuilding closestRefinery = null; float closestDistSqr = float.MaxValue; uint closestRefineryId = 0;
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (queryResults[i].TryGetComponent<RefineryBuilding>(out RefineryBuilding refinery))
                 {
-                    float healthBarHeight = healthBarRect.sizeDelta.y * healthBarRect.localScale.y; // Ta hänsyn till scale
-                    float spacing = 2f * healthBarRect.localScale.y; // Skala spacing också
-                    yOffset = -(healthBarHeight + spacing); // Negativt för att placera under
-                }
-
-                RectTransform invBarRect = inventoryBarSlider.GetComponent<RectTransform>();
-                invBarRect.anchoredPosition = new Vector2(0, yOffset); // Använd beräknad offset
-                inventoryBarSlider.gameObject.SetActive(true);
-            }
-            else { Debug.LogError("Inventory Bar Prefab lacks Slider!", inventoryBarInstance); }
-        }
-        else { Debug.LogError("Could not get HealthBarCanvas from Unit!", this); }
-    }
-
-    void Update()
-    {
-        if (unitInfo == null || unitInfo.currentHealth <= 0) return; // Pausa om död
-
-        switch (currentState)
-        {
-            case HarvesterState.Idle: FindWork(); break;
-            case HarvesterState.MovingToCrystal: MoveToCrystalUpdate(); break;
-            case HarvesterState.Gathering: GatheringUpdate(); break;
-            case HarvesterState.MovingToRefinery: MoveToRefineryUpdate(); break;
-            case HarvesterState.PositioningForDropOff: AttemptDeposit(); break; // Antog att detta leder till AttemptDeposit
-            case HarvesterState.WaitingForRefinery: WaitingForRefineryUpdate(); break;
-            case HarvesterState.Depositing: break; // Ingen logik här, styrs av Refinery
-        }
-        UpdateAnimatorSpeed();
-    }
-
-    // --- NY Hjälpmetod för att byta till Idle och hantera reservation ---
-    void GoToIdleState(bool releaseCurrentTarget)
-    {
-        // Släpp reservationen om vi hade en kristall som mål och ska släppa den
-        if (releaseCurrentTarget && targetCrystal != null)
-        {
-            targetCrystal.Release(this); // Anropa Release på kristallen
-            Debug.Log($"{gameObject.name} released target {targetCrystal.name} due to state change to Idle.");
-        }
-        targetCrystal = null; // Rensa alltid referensen
-
-        // Resten av Idle-logiken
-        currentState = HarvesterState.Idle;
-        // Stanna agenten om den inte redan är stoppad
-        if (agent.isOnNavMesh && !agent.isStopped)
-        {
-            agent.ResetPath(); // Stoppar och rensar vägen
-                               // agent.isStopped = true; // Alternativt sätt att stoppa
-        }
-        SetMiningAnimation(false);
-
-        // targetRefinery behöver normalt inte rensas här, FindWork hanterar det.
-    }
-
-
-    // --- State Logic (med reservation) ---
-
-    void FindWork()
-    {
-        SetMiningAnimation(false);
-
-        // 1. Om vi bär på något, hitta refinery
-        if (carriedCrystalType != CrystalType.None)
-        {
-            if (targetRefinery == null || !targetRefinery.gameObject.activeInHierarchy) targetRefinery = FindClosestRefinery();
-            if (targetRefinery != null)
-            {
-                // Se till att vi inte redan är på väg dit eller väntar
-                if (currentState != HarvesterState.MovingToRefinery && currentState != HarvesterState.WaitingForRefinery && currentState != HarvesterState.Depositing && currentState != HarvesterState.PositioningForDropOff)
-                {
-                    currentState = HarvesterState.MovingToRefinery;
-                    agent.stoppingDistance = 1.5f; // Anpassa efter refinery dockningspunkt
-                    agent.SetDestination(targetRefinery.dockingPoint.position);
+                    // TODO: Ägarkoll eller lagkoll?
+                    if (refinery.OwnerNetId == this.ownerNetId)
+                    { // Exempel: Måste vara vårt eget
+                        float distSqr = (refinery.transform.position - transform.position).sqrMagnitude;
+                        if (distSqr < closestDistSqr) { closestDistSqr = distSqr; closestRefinery = refinery; closestRefineryId = refinery.netId; }
+                    }
                 }
             }
-            else
-            {
-                // Ingen refinery, gå Idle men släpp ingen kristall (vi har ingen som mål)
-                Debug.LogWarning($"{gameObject.name} carries resources but no refinery found. Going Idle.", this);
-                GoToIdleState(false); // Använd hjälpmetoden
-            }
-            return; // Viktigt att avsluta här
+            if (closestRefinery != null) { Server_TransitionToState(HarvesterState.MovingToRefinery, 0, closestRefineryId); Vector3 dest = closestRefinery.dockingPoint != null ? closestRefinery.dockingPoint.position : closestRefinery.transform.position; movementComponent?.Server_SetDestination(dest); }
+            else { Debug.LogWarning($"Harvester {netId} cannot find a refinery! Going Idle."); Server_TransitionToState(HarvesterState.Idle, 0, 0); }
         }
 
-        // 2. Om vi är tomma, försök hitta och reservera en kristall
-        targetCrystal = FindClosestAvailableCrystal(); // Använder nu den modifierade metoden
-
-        if (targetCrystal != null)
+        // --- Target RPCs (Called By Server, Run on Owning Client) ---
+        [TargetRpc]
+        public void Target_AssignTaskFailed(string reason)
         {
-            // Reservationen lyckades (hanteras inuti FindClosest...)
-            agent.stoppingDistance = pickupRange * 0.8f;
-            agent.SetDestination(targetCrystal.transform.position);
-            currentState = HarvesterState.MovingToCrystal;
-            // Debug-log finns nu i FindClosest...
+            Debug.LogWarning($"Harvester {netId} task failed: {reason}");
+            GoToIdleStateLocally("Task failed");
         }
-        else
+        // Target_DepositComplete behövs inte om servern sköter allt direkt
+
+        // --- Client-Side Helper Methods ---
+        private IEnumerator FindTargetCrystalLocally(uint targetNetId)
         {
-            // Hittade ingen *ledig* kristall just nu. Stanna i Idle.
-            GoToIdleState(false); // Gå till Idle, ingen kristall att släppa.
-                                  // Debug-log finns nu i FindClosest...
+            if (targetNetId == 0) yield break; if (NetworkClient.spawned.TryGetValue(targetNetId, out NetworkIdentity identity)) { currentTargetCrystalCache = identity.GetComponent<HarvestableCrystal>(); if (currentTargetCrystalCache != null) yield break; }
+            float timeout = Time.time + 5f; while (Time.time < timeout && currentTargetCrystalCache == null) { if (NetworkClient.spawned.TryGetValue(targetNetId, out identity)) { currentTargetCrystalCache = identity.GetComponent<HarvestableCrystal>(); } if (currentTargetCrystalCache == null) yield return null; }
         }
-    }
-
-    void MoveToCrystalUpdate()
-    {
-        // Kolla om målet försvunnit ELLER om någon annan snott reservationen!
-        if (targetCrystal == null || !targetCrystal.gameObject.activeInHierarchy || targetCrystal.targetedBy != this)
+        private IEnumerator FindTargetRefineryLocally(uint targetNetId)
         {
-            Debug.Log($"{gameObject.name} lost target crystal {(targetCrystal?.name ?? "NULL")} or its reservation while moving. Going Idle.");
-            // Gå till Idle. VIKTIGT: Släpp INTE reservationen här (false) eftersom den antingen är borta
-            // eller ägs av någon annan nu. Vi rensar bara vår egen referens.
-            GoToIdleState(false); // Använd hjälpmetoden
-            return;
+            if (targetNetId == 0) yield break; if (NetworkClient.spawned.TryGetValue(targetNetId, out NetworkIdentity identity)) { currentTargetRefineryCache = identity.GetComponent<RefineryBuilding>(); if (currentTargetRefineryCache != null) yield break; }
+            float timeout = Time.time + 5f; while (Time.time < timeout && currentTargetRefineryCache == null) { if (NetworkClient.spawned.TryGetValue(targetNetId, out identity)) { currentTargetRefineryCache = identity.GetComponent<RefineryBuilding>(); } if (currentTargetRefineryCache == null) yield return null; }
         }
-
-        // Kolla om vi är framme
-        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
+        private void GoToIdleStateLocally(string reason)
         {
-            // Check if we actually stopped moving close to the target
-            if (agent.velocity.sqrMagnitude < 0.1f)
-            {
-                currentState = HarvesterState.Gathering;
-                gatherTimer = 0f;
-                agent.ResetPath(); // Stop movement completely
-                transform.LookAt(targetCrystal.transform.position); // Face the crystal
-                SetMiningAnimation(true); // Starta mining-animation
-            }
-        }
-    }
-
-    void GatheringUpdate()
-    {
-        // Kolla om målet försvunnit ELLER om någon annan snott reservationen!
-        if (targetCrystal == null || !targetCrystal.gameObject.activeInHierarchy || targetCrystal.targetedBy != this)
-        {
-            Debug.Log($"{gameObject.name} lost target crystal {(targetCrystal?.name ?? "NULL")} or reservation during gathering. Finding next.");
-            SetMiningAnimation(false);
-            // Gå direkt till att kolla om vi är fulla eller ska leta ny. Ingen release behövs.
-            CheckIfFullOrFindNextCrystal();
-            return;
+            currentTargetCrystalCache = null; currentTargetRefineryCache = null;
+            // Animation uppdateras via hook
         }
 
-        // Stå still och titta på kristallen
-        agent.ResetPath(); // Ensure we are stopped
-        transform.LookAt(targetCrystal.transform.position);
-
-        // Kolla om vi drev iväg (t.ex. knuffad)
-        if (Vector3.Distance(transform.position, targetCrystal.transform.position) > pickupRange * 1.1f)
-        {
-            Debug.Log($"{gameObject.name} drifted too far from {targetCrystal.name} while gathering. Re-pathing.");
-            SetMiningAnimation(false);
-            currentState = HarvesterState.MovingToCrystal;
-            agent.stoppingDistance = pickupRange * 0.8f;
-            agent.SetDestination(targetCrystal.transform.position);
-            return;
-        }
-
-        // Öka insamlingstimer
-        gatherTimer += Time.deltaTime;
-
-        // Kolla om insamlingen är klar
-        if (gatherTimer >= pickupDuration)
-        {
-            HarvestableCrystal crystalInfo = targetCrystal.GetComponent<HarvestableCrystal>(); // Borde finnas
-
-            if (crystalInfo != null)
-            {
-                if (currentLoad == 0)
-                { // Första kristallen sätter typen
-                    carriedCrystalType = crystalInfo.type;
-                    Debug.Log($"{gameObject.name} started collecting type {carriedCrystalType}");
-                }
-
-                if (carriedCrystalType == crystalInfo.type)
-                { // Samla bara om det är rätt typ
-                    currentLoad++;
-                    UpdateInventoryBar();
-                    Debug.Log($"{gameObject.name} harvested {crystalInfo.name}. Load: {currentLoad}/{carryCapacity}");
-
-                    // *** VIKTIGT: Förstör kristallen. Ingen Release() behövs här,
-                    // reservationen försvinner med objektet. ***
-                    Destroy(targetCrystal.gameObject);
-                    targetCrystal = null; // Rensa vår referens
-                }
-                else
-                {
-                    // Vi nådde fram till en kristall av fel typ (borde inte hända med FindOfType men som säkerhet)
-                    Debug.LogWarning($"{gameObject.name} reached crystal {crystalInfo.name} of wrong type ({crystalInfo.type}), expected {carriedCrystalType}. Releasing and searching again.");
-                    // Släpp reservationen på den felaktiga kristallen så någon annan kan ta den
-                    crystalInfo.Release(this);
-                    targetCrystal = null; // Rensa referens
-                }
-            }
-            else
-            {
-                // Borde inte hända om första null-checken passerades, men för säkerhets skull
-                Debug.LogError($"TargetCrystal {targetCrystal?.name ?? "NULL"} lost its HarvestableCrystal component during gathering!", this);
-                if (targetCrystal != null) Destroy(targetCrystal.gameObject); // Försök städa upp
-                targetCrystal = null;
-            }
-
-            // Återställ och gå vidare oavsett om vi lyckades eller ej
-            SetMiningAnimation(false);
-            gatherTimer = 0f;
-            CheckIfFullOrFindNextCrystal(); // Kolla vad som ska hända nu
-        }
-    }
-
-
-    void CheckIfFullOrFindNextCrystal()
-    {
-        gatherTimer = 0f; // Säkerställ nollställning
-                          // SetMiningAnimation(false); // Ska redan vara gjord i GatheringUpdate
-
-        // Om vi inte bär något (t.ex. om vi försökte plocka fel typ)
-        if (currentLoad == 0)
-        {
-            Debug.Log($"{gameObject.name} has empty load after gathering attempt. Going Idle to find new work.");
-            GoToIdleState(false); // Gå Idle, ingen kristall att släppa
-            return;
-        }
-
-        // Om vi är fulla, åk till refinery
-        if (currentLoad >= carryCapacity)
-        {
-            Debug.Log($"{gameObject.name} is full ({currentLoad}/{carryCapacity}). Finding refinery.");
-            targetRefinery = FindClosestRefinery();
-            if (targetRefinery != null)
-            {
-                currentState = HarvesterState.MovingToRefinery;
-                agent.stoppingDistance = 1.5f;
-                agent.SetDestination(targetRefinery.dockingPoint.position);
-                Debug.Log($"{gameObject.name} moving to refinery: {targetRefinery.name}");
-            }
-            else
-            {
-                Debug.LogWarning($"{gameObject.name} Load full, but NO refinery found! Going Idle.", this);
-                // Gå Idle, men vi måste släppa det vi håller på med (leta kristaller).
-                // Ingen kristall är target just nu, så release=false.
-                GoToIdleState(false);
-            }
-        }
-        else
-        {
-            // Inte full -> Leta nästa *tillgängliga* kristall av SAMMA typ
-            Debug.Log($"{gameObject.name} Not full. Looking for next available crystal of type: {carriedCrystalType}");
-            targetCrystal = FindClosestAvailableCrystalOfType(carriedCrystalType); // Använder modifierad metod
-
-            if (targetCrystal != null)
-            { // Hittade och reserverade en till
-              // Debug-log finns i FindClosest...
-                currentState = HarvesterState.MovingToCrystal;
-                agent.stoppingDistance = pickupRange * 0.8f;
-                agent.SetDestination(targetCrystal.transform.position);
-            }
-            else
-            { // Inga fler tillgängliga av samma typ, åk och lämna det vi har
-                Debug.Log($"{gameObject.name} Could not find another available crystal of type {carriedCrystalType}. Heading to refinery with partial load.");
-                targetRefinery = FindClosestRefinery();
-                if (targetRefinery != null)
-                {
-                    currentState = HarvesterState.MovingToRefinery;
-                    agent.stoppingDistance = 1.5f;
-                    agent.SetDestination(targetRefinery.dockingPoint.position);
-                    Debug.Log($"{gameObject.name} moving to refinery: {targetRefinery.name}");
-                }
-                else
-                {
-                    Debug.LogWarning($"{gameObject.name} Cannot find refinery to deposit partial load ({currentLoad})! Going Idle.", this);
-                    // Gå Idle. Ingen kristall är target, så release=false.
-                    GoToIdleState(false);
-                }
-            }
-        }
-    }
-
-    void UpdateInventoryBar()
-    {
-        if (inventoryBarSlider == null) return;
-        float fillAmount = (carryCapacity > 0) ? (float)currentLoad / carryCapacity : 0f;
-        inventoryBarSlider.value = Mathf.Clamp01(fillAmount);
-
-        if (inventoryBarFillImage != null)
-        {
-            Color targetColor;
-            switch (carriedCrystalType)
-            {
-                case CrystalType.Green: targetColor = Color.green; break;
-                case CrystalType.Blue: targetColor = Color.blue; break;
-                case CrystalType.Red: targetColor = Color.red; break;
-                default: targetColor = Color.grey; break; // Grå vid None eller 0 last
-            }
-            if (currentLoad == 0) { targetColor = Color.grey; } // Explicit grå om tom
-            inventoryBarFillImage.color = targetColor;
-        }
-        // Ensure the bar is active if it exists
-        if (!inventoryBarSlider.gameObject.activeSelf) { inventoryBarSlider.gameObject.SetActive(true); }
-    }
-
-    public void CompleteDeposit()
-    {
-        // Denna metod anropas av Refinery när urlastningen är klar
-        // Vi behöver inte vara i Depositing state längre, bara ta emot signalen.
-        // if (currentState != HarvesterState.Depositing) {
-        //     Debug.LogWarning($"{gameObject.name} received CompleteDeposit but wasn't in Depositing state?", this);
-        //     // Kan hända om refinery signalerar sent, bara återställ ändå.
-        // }
-
-        int valuePerCrystal = GetValueForCrystalType(carriedCrystalType);
-        int totalValue = currentLoad * valuePerCrystal;
-        Debug.Log($"{gameObject.name} depositing {currentLoad} crystals of type {carriedCrystalType} for a total value of {totalValue}");
-
-        if (totalValue > 0 && resourceManager != null)
-        {
-            resourceManager.AddResources(totalValue);
-        }
-        else if (resourceManager == null)
-        {
-            Debug.LogError("Harvester could not find PlayerResourceManager during deposit!", this);
-        }
-
-        // Återställ och gå Idle för att hitta nytt jobb
-        currentLoad = 0;
-        carriedCrystalType = CrystalType.None;
-        UpdateInventoryBar(); // Nollställ färg och värde
-        GoToIdleState(false); // Gå till Idle, ingen kristall att släppa
-    }
-
-    // --- Hjälpmetoder för Animator ---
-    void SetMiningAnimation(bool isMining)
-    {
-        // Undvik fel om animatorn saknas
-        if (animator == null) return;
-        // Undvik onödiga SetBool om värdet inte ändras
-        if (animator.GetBool(IsMiningParam) != isMining)
-        {
-            animator.SetBool(IsMiningParam, isMining);
-        }
-    }
-
-    void UpdateAnimatorSpeed()
-    {
-        if (animator == null || agent == null || !agent.isOnNavMesh) return;
-        // Använd agentens önskade hastighet istället för faktisk för mjukare övergångar
-        float speed = agent.desiredVelocity.magnitude;
-        // Låt animatorn veta hastigheten (för gå/spring-animation)
-        animator.SetFloat(SpeedParam, speed, 0.1f, Time.deltaTime); // Smooth damp
-    }
-
-    // --- Metoder för att hitta mål (Med reservation) ---
-
-    // Hitta närmaste *lediga* kristall oavsett typ
-    HarvestableCrystal FindClosestAvailableCrystal()
-    {
-        HarvestableCrystal[] allCrystals = FindObjectsOfType<HarvestableCrystal>();
-        HarvestableCrystal potentialTarget = null;
-        float minDistance = float.MaxValue;
-
-        foreach (HarvestableCrystal crystal in allCrystals)
-        {
-            // *** KOLLA OM LEDIG ***
-            if (crystal != null && crystal.gameObject.activeInHierarchy && !crystal.isTargeted) // !crystal.isTargeted
-            {
-                float distance = Vector3.Distance(transform.position, crystal.transform.position);
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                    potentialTarget = crystal;
-                }
-            }
-        }
-        // *** REServera om vi hittade en ***
-        if (potentialTarget != null)
-        {
-            if (potentialTarget.Reserve(this)) // Försök reservera
-            {
-                Debug.Log($"{gameObject.name} successfully reserved {potentialTarget.name}");
-                return potentialTarget; // Lyckades!
-            }
-            else
-            {
-                // Någon annan hann före. Logga och returnera null. FindWork får försöka igen.
-                Debug.LogWarning($"{gameObject.name} tried to reserve {potentialTarget.name} but failed (race condition?). Will retry finding another.");
-                return null; // Låt FindWork hantera att ingen hittades denna gången
-            }
-        }
-        Debug.Log($"{gameObject.name} found no available, unreserved crystal of any type.");
-        return null; // Ingen ledig kristall hittades
-    }
-
-    // Hitta närmaste *lediga* kristall av specifik typ
-    HarvestableCrystal FindClosestAvailableCrystalOfType(CrystalType type)
-    {
-        HarvestableCrystal[] allCrystals = FindObjectsOfType<HarvestableCrystal>();
-        HarvestableCrystal potentialTarget = null;
-        float minDistance = float.MaxValue;
-
-        foreach (HarvestableCrystal crystal in allCrystals)
-        {
-            // *** KOLLA TYP OCH OM LEDIG ***
-            if (crystal != null && crystal.gameObject.activeInHierarchy && crystal.type == type && !crystal.isTargeted) // !crystal.isTargeted
-            {
-                float distance = Vector3.Distance(transform.position, crystal.transform.position);
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                    potentialTarget = crystal;
-                }
-            }
-        }
-        // *** REServera om vi hittade en ***
-        if (potentialTarget != null)
-        {
-            if (potentialTarget.Reserve(this)) // Försök reservera
-            {
-                Debug.Log($"{gameObject.name} successfully reserved {potentialTarget.name} of type {type}");
-                return potentialTarget; // Lyckades!
-            }
-            else
-            {
-                Debug.LogWarning($"{gameObject.name} tried to reserve {potentialTarget.name} of type {type} but failed (race condition?). Will retry finding another.");
-                return null; // Låt CheckIfFull... hantera att ingen hittades
-            }
-        }
-        // Debug.Log($"{gameObject.name} found no available, unreserved crystal of type {type}."); // Lite väl spammy kanske
-        return null; // Ingen ledig kristall av rätt typ hittades
-    }
-
-
-    // Hitta närmaste refinery (ingen ändring här)
-    RefineryBuilding FindClosestRefinery()
-    {
-        RefineryBuilding[] allRefineries = FindObjectsOfType<RefineryBuilding>();
-        RefineryBuilding closestRefinery = null;
-        float minDistance = float.MaxValue;
-        foreach (RefineryBuilding refinery in allRefineries)
-        {
-            if (refinery != null && refinery.gameObject.activeInHierarchy && refinery.dockingPoint != null)
-            { // Kolla dockingPoint
-                float distance = Vector3.Distance(transform.position, refinery.transform.position);
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                    closestRefinery = refinery;
-                }
-            }
-        }
-        if (closestRefinery == null) Debug.LogWarning($"{gameObject.name} could not find any active RefineryBuilding!");
-        return closestRefinery;
-    }
-
-    // Få värde baserat på typ (ingen ändring här)
-    int GetValueForCrystalType(CrystalType type)
-    {
-        // Du bör nog ha dessa värden definierade centralt eller på Crystal prefaben
-        // Exempelvärden:
-        switch (type)
-        {
-            case CrystalType.Green: return 100; // Eller hämta från crystalInfo.value om den finns
-            case CrystalType.Blue: return 250;
-            case CrystalType.Red: return 500;
-            default: return 0;
-        }
-    }
-
-
-    // --- Metoder för Refinery Interaction (ingen ändring här) ---
-    void MoveToRefineryUpdate()
-    {
-        if (targetRefinery == null || !targetRefinery.gameObject.activeInHierarchy || targetRefinery.dockingPoint == null)
-        {
-            Debug.LogWarning($"{gameObject.name} target refinery became invalid while moving. Going Idle.", this);
-            GoToIdleState(false); // Ingen kristall att släppa
-            return;
-        }
-        // Kolla om vi är framme vid dockningspunkten
-        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
-        {
-            if (agent.velocity.sqrMagnitude < 0.1f)
-            {
-                // Stanna helt och försök lämna av
-                agent.ResetPath();
-                AttemptDeposit();
-            }
-        }
-    }
-
-    void AttemptDeposit()
-    {
-        if (targetRefinery == null)
-        {
-            Debug.LogError($"{gameObject.name} tried AttemptDeposit with null refinery!", this);
-            GoToIdleState(false);
-            return;
-        }
-
-        bool couldStart = targetRefinery.RequestUnload(this); // Skicka med oss själva
-
-        if (couldStart)
-        {
-            // Refinery accepterade, vi går in i Depositing state (passivt, väntar på CompleteDeposit)
-            currentState = HarvesterState.Depositing;
-            agent.ResetPath(); // Stå still vid dockningspunkten
-                               // Rotera mot refinery? (Valfritt)
-            transform.LookAt(targetRefinery.transform.position);
-            Debug.Log($"{gameObject.name} started deposit at {targetRefinery.name}");
-            SetMiningAnimation(false); // Se till att mining är av
-        }
-        else
-        {
-            // Refinery var upptagen, gå in i Waiting state
-            currentState = HarvesterState.WaitingForRefinery;
-            // Backa lite? Eller stå kvar. Sätt längre stopping distance så vi inte blockerar.
-            // agent.stoppingDistance = 5f; // Justera vid behov
-            // Se till att vi är på väg till rätt punkt om vi inte redan är där
-            // if (!agent.hasPath || agent.destination != targetRefinery.dockingPoint.position) {
-            //    agent.SetDestination(targetRefinery.dockingPoint.position);
-            // }
-            agent.ResetPath(); // Bara stå still i närheten
-            checkRefineryTimer = checkInterval; // Vänta lite innan första kollen
-            Debug.Log($"{gameObject.name} waiting for refinery {targetRefinery.name} to become free.");
-            SetMiningAnimation(false);
-        }
-    }
-
-    void WaitingForRefineryUpdate()
-    {
-        // Kolla om refinery försvann
-        if (targetRefinery == null || !targetRefinery.gameObject.activeInHierarchy)
-        {
-            Debug.LogWarning($"{gameObject.name} target refinery became invalid while waiting. Going Idle.", this);
-            GoToIdleState(false);
-            return;
-        }
-
-        // Stå stilla (eller patrullera lite?)
-        if (!agent.hasPath && agent.velocity.sqrMagnitude < 0.1f)
-        {
-            // Kanske backa lite från dockningspunkten om vi är för nära?
-        }
-
-        // Kolla med jämna mellanrum om refinery är ledigt
-        checkRefineryTimer += Time.deltaTime;
-        if (checkRefineryTimer >= checkInterval)
-        {
-            checkRefineryTimer = 0f;
-            // Fråga igen om den INTE är upptagen just nu
-            if (!targetRefinery.isCurrentlyUnloading)
-            {
-                bool couldStart = targetRefinery.RequestUnload(this);
-                if (couldStart)
-                {
-                    // Lyckades! Gå till dockningspunkten och Depositing state
-                    currentState = HarvesterState.Depositing; // Gå till passiv state
-                    agent.stoppingDistance = 1.5f; // Närma oss igen
-                    agent.SetDestination(targetRefinery.dockingPoint.position); // Gå fram till dockan
-                    Debug.Log($"{gameObject.name} finished waiting and started deposit at {targetRefinery.name}");
-                    SetMiningAnimation(false);
-                }
-                // Om det inte lyckades nu heller, fortsätt vänta...
-            }
-        }
-    }
-
-} // End of class
+    } // End of class HarvesterUnit
+} // End of namespace RTSGAME

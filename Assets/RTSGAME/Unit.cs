@@ -1,270 +1,206 @@
-// Unit.cs (Inkluderar GetHealthBarCanvas och kör Setup i Awake)
+// Assets/RTSGAME/Scripts/Units/Unit.cs
+using Mirror;
 using UnityEngine;
-using UnityEngine.AI;
-using UnityEngine.UI; // Viktigt för Slider
+using UnityEngine.UI; // För Slider i Health Bar prefab
 
-[RequireComponent(typeof(NavMeshAgent))]
-[RequireComponent(typeof(Collider))] // Viktigt för OnMouseEnter/Exit och Raycasting
-public class Unit : MonoBehaviour
+namespace RTSGAME
 {
-    [Header("Stats")]
-    public float maxHealth = 100f;
-    public float currentHealth;
-    public float attackDamage = 10f;
-    public float attackRange = 2f;
-    public float attackCooldown = 1.5f;
-    public int teamID = 0; // 0 = Spelare, 1 = Fiende, etc.
-
-    [Header("State (Internal)")]
-    public bool isSelected = false; // Styrs av PlayerUnitController
-    private NavMeshAgent agent;
-    private Renderer unitRenderer;
-    private Color originalColor;
-    private Transform currentTarget = null;
-    private float lastAttackTime = -100f;
-    public enum UnitState { Idle, MovingToDestination, MovingToAttackTarget, Attacking }
-    public UnitState currentState = UnitState.Idle;
-
-    [Header("Health Bar")]
-    public GameObject healthBarPrefab; // Dra din Slider-prefab hit
-    public Transform healthBarSpawnPoint; // Dra ditt spawn point-objekt hit
-    public Vector3 healthBarOffset = new Vector3(0, 1.5f, 0); // Fallback
-    private Slider healthBarSlider = null;
-    private Canvas healthBarCanvas = null; // Denna skapas och hanteras här
-    private Camera mainCameraForBillboard;
-
-    void Awake()
+    // Kräver nödvändiga komponenter för nätverk, hälsa, rörelse, synkning
+    [RequireComponent(typeof(NetworkIdentity))]
+    [RequireComponent(typeof(Health))]
+    [RequireComponent(typeof(UnitMovement))]
+    [RequireComponent(typeof(NetworkTransformBase))] // NetworkTransform eller NetworkTransformChild
+    [RequireComponent(typeof(Collider))]
+    public class Unit : NetworkBehaviour // Ärv från NetworkBehaviour
     {
-        // Hämta komponenter tidigt
-        agent = GetComponent<NavMeshAgent>();
-        unitRenderer = GetComponentInChildren<Renderer>();
-        if (unitRenderer != null)
+        [Header("Unit Info")]
+        [SerializeField] private string unitDisplayName = "Unit";
+        // TODO: Lägg till UnitType Enum om det behövs för identifiering
+
+        [Header("Ownership & Team")]
+        // Ägaren sätts av servern vid spawn. Hook uppdaterar färg etc.
+        [SyncVar(hook = nameof(OnOwnerNetIdChanged))]
+        public uint ownerNetId = 0; // 0 = Neutral/Server?
+
+        [Header("Component References")]
+        [SerializeField] protected Health healthComponent;
+        [SerializeField] protected UnitMovement movementComponent;
+        [SerializeField] protected NetworkTransformBase networkTransform;
+        [SerializeField] protected Renderer mainRenderer; // För färg/highlight
+        [SerializeField] protected Collider unitCollider;
+        [SerializeField] protected Animator animator; // Om animationer används
+
+        [Header("Visuals")]
+        [SerializeField] protected GameObject selectionIndicator;
+        [SerializeField] protected Slider healthBarSlider; // Koppla till Slidern i prefabens HealthBar Canvas
+        [SerializeField] protected GameObject healthBarCanvasGO; // Koppla till Canvas GO i prefaben
+
+        // --- State är nu borttaget från basklassen ---
+        // public enum UnitState { Idle, Moving, Attacking, Building, Repairing, Capturing, Dead } // BORTTAGEN
+        // [SyncVar(hook = nameof(OnStateChanged))] protected UnitState currentState = UnitState.Idle; // BORTTAGEN
+
+        // Property för TeamID (hämtas via PlayerManager)
+        public int TeamID
         {
-            originalColor = unitRenderer.material.color;
+            get
+            {
+                if (ownerNetId == 0 || PlayerManager.Instance == null) return 0; // Neutral/Ingen manager
+                // OBS: Anpassa GetPlayer för att hantera uint netId korrekt!
+                NetworkPlayer ownerPlayer = PlayerManager.Instance.GetPlayer(ownerNetId);
+                return ownerPlayer != null ? ownerPlayer.teamID : 0;
+            }
         }
-        else
+        public string UnitDisplayName => unitDisplayName;
+        // public UnitState CurrentState => currentState; // BORTTAGEN
+
+        // --- Unity & Mirror Callbacks ---
+
+        protected virtual void Awake()
         {
-            Debug.LogWarning($"Unit '{gameObject.name}' could not find Renderer!", this);
-        }
-        currentHealth = maxHealth;
-
-        // Hitta kameran tidigt (Camera.main kan vara långsam att anropa ofta)
-        mainCameraForBillboard = Camera.main;
-        if (mainCameraForBillboard == null)
-        {
-            Debug.LogError("Could not find Main Camera for Billboard!", this);
-        }
-
-        // *** Skapa Health Bar och dess Canvas redan i Awake ***
-        // Detta säkerställer att canvasen finns när andra scripts (som HarvesterUnit)
-        // kör sin Start()-metod och anropar GetHealthBarCanvas().
-        SetupHealthBar();
-    }
-
-    void Start()
-    {
-        // Uppdatera värdet initialt
-        UpdateHealthBar();
-
-        // Starta alltid med health bar dold (om inte vald och spelarens)
-        if (healthBarCanvas != null)
-        {
-            bool shouldStartVisible = (isSelected && teamID == 0);
-            healthBarCanvas.gameObject.SetActive(shouldStartVisible);
-        }
-    }
-
-    void SetupHealthBar()
-    {
-        Debug.Log($"[{gameObject.name}] Running SetupHealthBar..."); // Felsökningslogg
-        if (healthBarPrefab == null)
-        {
-            Debug.LogError($"Health Bar Prefab is not assigned on Unit '{gameObject.name}'. Cannot create health bar.", this);
-            return;
+            if (healthComponent == null) healthComponent = GetComponent<Health>();
+            if (movementComponent == null) movementComponent = GetComponent<UnitMovement>();
+            if (networkTransform == null) networkTransform = GetComponent<NetworkTransformBase>();
+            if (mainRenderer == null) mainRenderer = GetComponentInChildren<Renderer>();
+            if (unitCollider == null) unitCollider = GetComponent<Collider>();
+            if (animator == null) animator = GetComponentInChildren<Animator>();
+            if (selectionIndicator) selectionIndicator.SetActive(false);
+            if (healthBarCanvasGO) healthBarCanvasGO.SetActive(false);
         }
 
-        // Bestäm förälder och position
-        Transform spawnParentTransform = (healthBarSpawnPoint != null) ? healthBarSpawnPoint : this.transform;
-        Vector3 spawnPos = spawnParentTransform.position;
-        if (healthBarSpawnPoint == null)
+        public override void OnStartServer()
         {
-            spawnPos = transform.position + healthBarOffset;
+            base.OnStartServer();
+            healthComponent?.Server_SetInitialHealth();
+            // currentState = UnitState.Idle; // BORTTAGEN - State hanteras i subklasser
         }
 
-        // Skapa Canvas GameObject
-        GameObject canvasGO = new GameObject(gameObject.name + "_HealthBarCanvas");
-        canvasGO.transform.SetParent(spawnParentTransform, false);
-        if (healthBarSpawnPoint == null) { canvasGO.transform.position = spawnPos; }
-        else { canvasGO.transform.localPosition = Vector3.zero; }
-        canvasGO.transform.localRotation = Quaternion.identity;
-
-        // Lägg till och konfigurera Canvas-komponenten
-        healthBarCanvas = canvasGO.AddComponent<Canvas>();
-        Debug.Log($"[{gameObject.name}] healthBarCanvas assigned: {(healthBarCanvas != null)}"); // Felsökningslogg
-        healthBarCanvas.renderMode = RenderMode.WorldSpace;
-        healthBarCanvas.worldCamera = mainCameraForBillboard;
-
-        RectTransform canvasRect = canvasGO.GetComponent<RectTransform>();
-        canvasRect.sizeDelta = new Vector2(100, 20); // Storlek på själva canvas-ytan (justera vid behov)
-
-        // *** SKALNING AV WORLD SPACE CANVAS ***
-        // Denna lokala skala multipliceras med skalan på föräldraobjektet (Unit/SpawnPoint).
-        // Om dina olika Unit-prefabs har olika storlek (Scale i deras Transform),
-        // kommer health baren också att se olika stor ut i världen.
-        // Justera detta värde tills baren ser lagom stor ut för en "normalstor" enhet.
-        // Acceptera att den blir större/mindre på större/mindre enheter, eller byt till Screen Space Canvas.
-        canvasRect.localScale = new Vector3(0.01f, 0.01f, 0.01f);
-        // *** SLUT PÅ SKALNINGSKOMMENTAR ***
-
-        // Instansiera själva Health Bar Slidern som barn till Canvas
-        GameObject healthBarInstance = Instantiate(healthBarPrefab, canvasGO.transform);
-        healthBarSlider = healthBarInstance.GetComponent<Slider>();
-
-        if (healthBarSlider == null)
+        public override void OnStartClient()
         {
-            Debug.LogError($"Instantiated Health Bar Prefab for '{gameObject.name}' lacks Slider component!", healthBarInstance);
-            Destroy(canvasGO); return;
+            base.OnStartClient();
+            OnOwnerNetIdChanged(0, ownerNetId); // Tvinga färg-uppdatering
+            // OnStateChanged(currentState, currentState); // BORTTAGEN
+            if (healthComponent != null) { UpdateHealthBarUI(0, healthComponent.CurrentHealth); }
         }
 
-        // Positionera slidern inom canvasen (t.ex. centrerad)
-        RectTransform sliderRect = healthBarInstance.GetComponent<RectTransform>();
-        sliderRect.anchoredPosition = Vector2.zero;
+        // --- SyncVar Hooks ---
 
-        // Lägg till Billboard-scriptet
-        if (mainCameraForBillboard != null)
+        protected virtual void OnOwnerNetIdChanged(uint oldOwnerNetId, uint newOwnerNetId)
         {
-            Billboard billBoardScript = canvasGO.AddComponent<Billboard>();
-            billBoardScript.SetCameraToFace(mainCameraForBillboard);
+            UpdateColorBasedOnOwner();
         }
 
-        Debug.Log($"[{gameObject.name}] Finished SetupHealthBar. Canvas is null? {(healthBarCanvas == null)}"); // Felsökningslogg
-    }
+        // protected virtual void OnStateChanged(UnitState oldState, UnitState newState) { /* BORTTAGEN */ }
 
-    // Metod för att HarvesterUnit ska kunna få tag i canvasen
-    public Canvas GetHealthBarCanvas()
-    {
-        return healthBarCanvas;
-    }
-
-
-    // --- Metoder för synlighet och uppdatering ---
-
-    // UpdateHealthBar uppdaterar BARA värdet
-    void UpdateHealthBar()
-    {
-        if (healthBarSlider == null || healthBarCanvas == null) return;
-        float healthPercent = (maxHealth > 0) ? Mathf.Clamp01(currentHealth / maxHealth) : 0f;
-        healthBarSlider.value = healthPercent;
-    }
-
-    public void Select()
-    {
-        isSelected = true;
-        if (unitRenderer != null) { unitRenderer.material.color = Color.green; }
-        if (teamID == 0 && healthBarCanvas != null) { UpdateHealthBar(); healthBarCanvas.gameObject.SetActive(true); }
-    }
-
-    public void Deselect()
-    {
-        isSelected = false;
-        if (unitRenderer != null) { unitRenderer.material.color = originalColor; }
-        if (teamID == 0 && healthBarCanvas != null) { healthBarCanvas.gameObject.SetActive(false); }
-    }
-
-    void OnMouseEnter()
-    {
-        if (teamID != 0 && healthBarCanvas != null) { UpdateHealthBar(); healthBarCanvas.gameObject.SetActive(true); }
-    }
-
-    void OnMouseExit()
-    {
-        if (teamID != 0 && healthBarCanvas != null) { healthBarCanvas.gameObject.SetActive(false); }
-    }
-
-    // --- Skada och Död ---
-
-    public void TakeDamage(float damageAmount)
-    {
-        if (currentHealth <= 0) return;
-        currentHealth -= damageAmount;
-        currentHealth = Mathf.Max(currentHealth, 0); // Gå inte under noll
-        UpdateHealthBar(); // Uppdatera värdet
-        if (currentHealth <= 0) { Die(); }
-    }
-
-    private void Die()
-    {
-        if (currentState == UnitState.Idle && currentHealth <= 0 && agent.enabled == false) return;
-        // Debug.Log(gameObject.name + " died!"); // Behövs kanske inte längre
-        currentState = UnitState.Idle;
-        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
+        // Hook anropas från Health.cs när hälsan ändras
+        public virtual void OnHealthUpdated(float oldHealth, float newHealth)
         {
-            agent.isStopped = true; agent.ResetPath(); agent.enabled = false;
+            UpdateHealthBarUI(oldHealth, newHealth);
         }
-        Collider col = GetComponent<Collider>();
-        if (col != null) col.enabled = false;
-        if (healthBarCanvas != null) { Destroy(healthBarCanvas.gameObject); } // Förstör canvasen
-        Destroy(gameObject, 3f); // Förstör enheten efter fördröjning
-    }
 
-    // --- State Machine och Kommandon (Oförändrade) ---
 
-    void Update()
-    {
-        if (currentHealth <= 0 || !agent.enabled) return;
-        switch (currentState)
+        // --- Public Methods ---
+
+        [Server]
+        public virtual void Server_InitializeUnit(uint ownerId, int factionIdIfRelevant = 0)
         {
-            case UnitState.Idle: break;
-            case UnitState.MovingToDestination:
-                if (!agent.pathPending && agent.hasPath && agent.remainingDistance <= agent.stoppingDistance)
+            ownerNetId = ownerId;
+            healthComponent?.Server_SetInitialHealth();
+            // currentState = UnitState.Idle; // BORTTAGEN
+        }
+
+        // Anropas av SelectionManager (Klient-sida)
+        public virtual void Select()
+        {
+            bool isMyUnit = (ownerNetId != 0 && NetworkClient.active && NetworkClient.localPlayer != null && ownerNetId == NetworkClient.localPlayer.netId);
+            if (selectionIndicator) selectionIndicator.SetActive(true);
+            if (healthBarCanvasGO && isMyUnit)
+            { // Exempel: Visa bara för egna enheter
+                healthBarCanvasGO.SetActive(true);
+                if (healthComponent) UpdateHealthBarUI(0, healthComponent.CurrentHealth);
+            }
+            // TODO: Annan highlight-effekt?
+        }
+
+        // Anropas av SelectionManager (Klient-sida)
+        public virtual void Deselect()
+        {
+            if (selectionIndicator) selectionIndicator.SetActive(false);
+            if (healthBarCanvasGO) healthBarCanvasGO.SetActive(false);
+            // TODO: Stäng av highlight-effekt?
+        }
+
+
+        // --- Metod som anropas av UnitMovement ---
+        [Server]
+        public virtual void OnMovementArrival()
+        {
+            // Basklassen gör kanske ingenting specifikt här nu när state är borttaget.
+            // Subklasser som ConstructionWorker måste overridea denna (eller hantera via sin egen state)
+            // om de behöver veta när en generell rörelse är klar för att gå till Idle.
+            Debug.Log($"Unit {netId} arrived at destination (Called from UnitMovement).");
+            // Kanske anropa en generell Idle-metod om en sådan finns?
+            // Server_GoToIdleState(); // Denna behöver definieras om och användas av subklasser
+        }
+
+        // Exempel på Idle-metod (kanske inte behövs i basklass)
+        // [Server]
+        // public virtual void Server_GoToIdleState() {
+        //      if (movementComponent != null) { movementComponent.Server_StopMovement(); }
+        //      Debug.Log($"Unit {netId} requested to go idle.");
+        //      // Subklasser sätter sitt eget state här
+        // }
+
+
+        // --- Helper Methods ---
+
+        protected void UpdateColorBasedOnOwner()
+        {
+            Color newColor = Color.grey;
+            if (ownerNetId != 0)
+            {
+                if (NetworkClient.spawned.TryGetValue(ownerNetId, out NetworkIdentity ownerIdentity))
                 {
-                    if (agent.velocity.sqrMagnitude < 0.01f) { currentState = UnitState.Idle; } // Kolla om den faktiskt stannat
+                    NetworkPlayer ownerPlayer = ownerIdentity.GetComponent<NetworkPlayer>();
+                    if (ownerPlayer != null) newColor = ownerPlayer.playerColor;
                 }
-                break;
-            case UnitState.MovingToAttackTarget: HandleMovingToAttackTarget(); break;
-            case UnitState.Attacking: HandleAttackingState(); break;
+                else if (isServer && NetworkServer.spawned.TryGetValue(ownerNetId, out NetworkIdentity ownerIdentitySrv))
+                {
+                    NetworkPlayer ownerPlayer = ownerIdentitySrv.GetComponent<NetworkPlayer>();
+                    if (ownerPlayer != null) newColor = ownerPlayer.playerColor;
+                }
+            }
+            if (mainRenderer != null) { mainRenderer.material.color = newColor; } // Använd MaterialPropertyBlock!
         }
-    }
 
-    void HandleMovingToAttackTarget()
-    { /* ... som tidigare ... */
-        if (currentTarget == null || !currentTarget.gameObject.activeInHierarchy) { currentState = UnitState.Idle; agent.ResetPath(); return; }
-        agent.SetDestination(currentTarget.position);
-        if (Vector3.Distance(transform.position, currentTarget.position) <= attackRange)
+        public virtual void UpdateHealthBarUI(float oldHealth, float newHealth)
         {
-            agent.ResetPath(); currentState = UnitState.Attacking; transform.LookAt(currentTarget);
+            if (healthBarSlider != null && healthComponent != null)
+            {
+                healthBarSlider.value = newHealth / healthComponent.MaxHealth;
+            }
+            else if (healthBarSlider != null) { healthBarSlider.value = 0; }
         }
-    }
-    void HandleAttackingState()
-    { /* ... som tidigare ... */
-        if (currentTarget == null || !currentTarget.gameObject.activeInHierarchy) { currentState = UnitState.Idle; return; }
-        if (Vector3.Distance(transform.position, currentTarget.position) > attackRange)
+
+        // Animation uppdateras nu i subklassens state hook baserat på dess egna state enum
+        // protected virtual void UpdateAnimation(UnitState oldState, UnitState newState) { /* BORTTAGEN */ }
+
+
+        // --- Ägarskapskontroll ---
+        /// <summary>
+        /// Checks if the provided network connection owns this unit.
+        /// MUST be called on the server.
+        /// </summary>
+        [Server]
+        protected bool IsOwner(NetworkConnection requestingConnection)
         {
-            currentState = UnitState.MovingToAttackTarget; return;
+            if (ownerNetId == 0) return false;
+            if (requestingConnection == null) return false;
+            if (NetworkServer.spawned.TryGetValue(ownerNetId, out NetworkIdentity ownerIdentity))
+            {
+                return ownerIdentity.connectionToClient == requestingConnection;
+            }
+            else { Debug.LogError($"Could not find owner object with netId {ownerNetId} for unit {this.netId}"); return false; }
         }
-        transform.LookAt(currentTarget);
-        if (Time.time >= lastAttackTime + attackCooldown) { PerformAttack(); lastAttackTime = Time.time; }
+
     }
-    void PerformAttack()
-    { /* ... som tidigare ... */
-        if (currentTarget == null) return;
-        Unit targetUnit = currentTarget.GetComponent<Unit>();
-        if (targetUnit != null && targetUnit.currentHealth > 0) { targetUnit.TakeDamage(attackDamage); }
-        else { currentTarget = null; currentState = UnitState.Idle; }
-    }
-    public void OrderMoveTo(Vector3 destination)
-    { /* ... som tidigare ... */
-        if (currentHealth <= 0) return; currentTarget = null; if (!agent.enabled) agent.enabled = true; agent.isStopped = false;
-        agent.stoppingDistance = 0.5f; agent.SetDestination(destination); currentState = UnitState.MovingToDestination;
-    }
-    public void OrderAttackTarget(Transform target)
-    { /* ... som tidigare ... */
-        if (currentHealth <= 0 || target == null) return; Unit targetUnit = target.GetComponent<Unit>();
-        if (targetUnit != null && targetUnit.teamID != this.teamID)
-        {
-            currentTarget = target; if (!agent.enabled) agent.enabled = true; agent.isStopped = false;
-            agent.stoppingDistance = attackRange * 0.8f; currentState = UnitState.MovingToAttackTarget;
-        }
-        else { /* Ignorera/logga */ }
-    }
-} // End of class
+}
