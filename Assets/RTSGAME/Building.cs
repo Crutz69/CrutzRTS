@@ -69,8 +69,8 @@ namespace RTSGAME
         [SerializeField] private Slider progressBarSlider;
 
         [Header("Rally Point")]
-        [SerializeField] private GameObject rallyPointVisualPrefab;
-        [SerializeField] private LineRenderer rallyPointLineRenderer;
+        [SerializeField] public GameObject rallyPointVisualPrefab;
+        [SerializeField] public LineRenderer rallyPointLineRenderer;
         [SyncVar(hook = nameof(OnRallyPointChanged))]
         protected Vector3 rallyPointPosition;
         [SyncVar] protected bool hasRallyPoint = false;
@@ -260,15 +260,60 @@ namespace RTSGAME
         [Server] public bool Server_StartCaptureAttempt(NetworkIdentity workerIdentity) { /* ... som tidigare ... */ return false; }
         private IEnumerator CaptureTimer(NetworkIdentity workerIdentity, float duration) { /* ... som tidigare ... */ yield return null; }
         [Server] public void Server_CancelCaptureAttempt(string reason) { /* ... som tidigare ... */ }
-        [Server] private void Server_ChangeOwner(uint newOwnerNetId) { /* ... som tidigare ... */ }
+        [Server]
+        public void Server_ChangeOwner(uint newOwnerNetId) // <-- ÄNDRAD till public
+        {
+            uint oldOwnerNetId = ownerNetId;
+            ownerNetId = newOwnerNetId;
+
+            // Återställ capture state helt om den höll på att tas över
+            if (isBeingCaptured)
+            {
+                if (captureCoroutine != null) { StopCoroutine(captureCoroutine); captureCoroutine = null; }
+                isBeingCaptured = false;
+                captureProgress = 0f; // Nollställ progress vid ägarbyte (även om det var lyckat capture?) Eller sätt till 1? Sätt till 0 är säkrast.
+                uint workerId = capturingWorkerNetId;
+                capturingWorkerNetId = 0;
+                // Meddela arbetaren som försökte capture (om den fanns) att det avbröts pga ägarbyte
+                if (workerId != 0 && NetworkServer.spawned.TryGetValue(workerId, out NetworkIdentity workerIdentity))
+                {
+                    ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+                    if (worker != null) worker.Target_CaptureInterrupted(netIdentity);
+                }
+            }
+
+
+            // Sätt byggnadens state till Operational (eller Disabled om ingen ström)
+            // Detta kräver en check mot ResourceManager för den nya ägaren (om inte neutral)
+            if (newOwnerNetId == 0)
+            { // Om blir neutral
+                currentState = BuildingState.Operational; // Antag neutrala alltid har "ström"
+                ResumeFunctionality(); // Försök återuppta funktion
+            }
+            else
+            {
+                // bool hasPower = ResourceManager.Instance.Server_CheckPowerForPlayer(newOwnerNetId); // Kräver check
+                // currentState = hasPower ? BuildingState.Operational : BuildingState.Disabled_NoPower;
+                currentState = BuildingState.Operational; // Förenklad: Anta operationell
+                if (IsPowered) ResumeFunctionality(); else HaltFunctionality();
+            }
+
+
+            Debug.Log($"{BuildingName} owner changed from {oldOwnerNetId} to {newOwnerNetId}. Original Faction: {originalFactionID}");
+            Server_UpdateColorBasedOnOwner(); // Uppdatera färgen
+
+            // Behöver inte meddela arbetaren om lyckat capture här, det gjordes i CaptureTimer/Cancel
+
+            // TODO: Andra nödvändiga uppdateringar (managers etc.)
+        }
         [Server] private void Server_UpdateColorBasedOnOwner() { /* ... som tidigare ... */ }
         [ClientRpc] private void RpcUpdateVisualColor(Color newColor) { /* ... som tidigare ... */ }
 
         // --- Rally Point Logic ---
         [Command] public void CmdSetRallyPoint(Vector3 position) { Server_SetRallyPoint(position); }
         [Command] public void CmdClearRallyPoint() { Server_ClearRallyPoint(); }
-        [Server] private void Server_SetRallyPoint(Vector3 position) { rallyPointPosition = position; hasRallyPoint = true; }
-        [Server] private void Server_ClearRallyPoint() { hasRallyPoint = false; }
+        [Server] public void Server_SetRallyPoint(Vector3 position) { rallyPointPosition = position; hasRallyPoint = true; }
+        [Server] public void Server_ClearRallyPoint() { hasRallyPoint = false; }
         public virtual Vector3 GetRallyPointPosition() { return hasRallyPoint ? rallyPointPosition : (transform.position + transform.forward * 5.0f); }
         protected virtual void UpdateRallyPointVisuals() { /* ... som tidigare ... */ }
         protected virtual void PositionRallyMarker() { /* ... som tidigare ... */ }

@@ -24,10 +24,12 @@ namespace RTSGAME
         private HarvesterState currentState = HarvesterState.Idle;
 
         // Inventarie (synkas till klienter för UI/visuella effekter)
-        [SyncVar(hook = nameof(OnInventoryChangedHook))]
+        // ---- KORRIGERING: Separata Hooks ----
+        [SyncVar(hook = nameof(OnLoadChangedHook))]
         private int currentLoad = 0;
-        [SyncVar(hook = nameof(OnInventoryChangedHook))] // Ändra färg på UI/effekt
+        [SyncVar(hook = nameof(OnCrystalTypeChangedHook))]
         private CrystalType carriedCrystalType = CrystalType.None;
+        // ------------------------------------
 
         // Mål (NetId synkas, lokal cache för script-referens)
         [SyncVar] private uint targetCrystalNetId = 0;
@@ -66,17 +68,17 @@ namespace RTSGAME
             carriedCrystalType = CrystalType.None;
             targetCrystalNetId = 0;
             targetRefineryNetId = 0;
-            queryResults = new Collider[maxQueryColliders]; // Initiera arrayen på servern
-            // TODO: Starta AI:n på servern om detta är en AI-harvester?
-            // if (isAIControlled) Server_FindWork();
+            queryResults = new Collider[maxQueryColliders];
+            // TODO: Starta AI?
         }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
-            // Initial UI setup baserat på SyncVars
-            OnInventoryChangedHook(0, currentLoad, CrystalType.None, carriedCrystalType);
+            // Initial UI setup baserat på SyncVars via hooks
             OnStateChangedHook(currentState, currentState); // Tvinga initial hook call
+            OnLoadChangedHook(0, currentLoad);             // Tvinga initial hook call
+            OnCrystalTypeChangedHook(CrystalType.None, carriedCrystalType); // Tvinga initial hook call
             // Försök hitta mål om state kräver det
             if (targetCrystalNetId != 0) StartCoroutine(FindTargetCrystalLocally(targetCrystalNetId));
             if (targetRefineryNetId != 0) StartCoroutine(FindTargetRefineryLocally(targetRefineryNetId));
@@ -92,21 +94,28 @@ namespace RTSGAME
             UpdateAnimationHarvester(oldState, newState);
         }
 
-        void OnInventoryChangedHook(int oldLoad, int newLoad, CrystalType oldType, CrystalType newType)
+        // ---- KORRIGERING: Separata Hooks ----
+        // Hook specifikt för när currentLoad ändras
+        void OnLoadChangedHook(int oldLoad, int newLoad)
         {
-            UpdateInventoryBarUI(newLoad, newType);
+            UpdateInventoryBarUI(newLoad, carriedCrystalType); // Uppdatera UI med ny last, aktuell typ
         }
+        // Hook specifikt för när carriedCrystalType ändras
+        void OnCrystalTypeChangedHook(CrystalType oldType, CrystalType newType)
+        {
+            UpdateInventoryBarUI(currentLoad, newType); // Uppdatera UI med aktuell last, ny typ
+        }
+        // --------------------------------------
 
         // --- Animation & UI (Client-side) ---
 
         void UpdateAnimationHarvester(HarvesterState oldState, HarvesterState newState)
         {
-            if (animator == null) return; // animator ärvs från Unit
+            if (animator == null) return;
             bool isMoving = (newState == HarvesterState.MovingToCrystal || newState == HarvesterState.MovingToRefinery || newState == HarvesterState.MovingToPosition);
             animator.SetBool("IsMoving", isMoving);
             animator.SetBool("IsHarvesting", newState == HarvesterState.Harvesting);
-            // float speed = networkTransform != null ? networkTransform.calculateVelocity.magnitude : 0f;
-            // animator.SetFloat("Forward", speed, 0.1f, Time.deltaTime);
+            // TODO: Update speed based on NetworkTransform velocity
         }
 
         void UpdateInventoryBarUI(int load, CrystalType type)
@@ -135,7 +144,7 @@ namespace RTSGAME
             if (targetCrystal == null) return;
             if (currentLoad >= carryCapacity) { Server_FindRefineryAndMove(); return; }
 
-            if (targetCrystal.Server_TryReserve(this.netIdentity))
+            if (targetCrystal.Server_TryReserve(this.netId))
             {
                 Server_TransitionToState(HarvesterState.MovingToCrystal, resourceIdentity.netId, 0);
                 movementComponent?.Server_SetDestination(targetCrystal.transform.position);
@@ -151,7 +160,7 @@ namespace RTSGAME
             RefineryBuilding targetRefinery = refineryIdentity.GetComponent<RefineryBuilding>();
             if (targetRefinery == null) return;
             if (currentLoad <= 0) return;
-            // if(targetRefinery.OwnerNetId != this.ownerNetId) return; // Validera ägarskap?
+            // if(targetRefinery.OwnerNetId != this.ownerNetId) return;
 
             Server_TransitionToState(HarvesterState.MovingToRefinery, 0, refineryIdentity.netId);
             Vector3 dest = targetRefinery.dockingPoint != null ? targetRefinery.dockingPoint.position : targetRefinery.transform.position;
@@ -224,20 +233,21 @@ namespace RTSGAME
         [Server]
         private void Server_StartGathering()
         {
+            // Försök hitta kristallen igen
             if (targetCrystalNetId == 0 || !NetworkServer.spawned.TryGetValue(targetCrystalNetId, out var id)) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
             currentTargetCrystalCache = id.GetComponent<HarvestableCrystal>();
             if (currentTargetCrystalCache == null) { Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
 
+            // Validera reservation och räckvidd
             if (currentTargetCrystalCache.TargetedByNetId != this.netId) { Debug.LogWarning("Lost reservation."); Server_TransitionToState(HarvesterState.Idle, 0, 0); return; }
             float distance = Vector3.Distance(transform.position, currentTargetCrystalCache.transform.position);
             if (distance > pickupRange * 1.1f) { Debug.LogWarning("Too far to gather."); Server_TransitionToState(HarvesterState.MovingToCrystal, targetCrystalNetId, 0); movementComponent?.Server_SetDestination(currentTargetCrystalCache.transform.position); return; }
 
             Server_TransitionToState(HarvesterState.Harvesting, targetCrystalNetId, 0);
             movementComponent?.Server_StopMovement();
-            Server_StartWorkCoroutine(HarvestTimer());
+            server_workCoroutine = StartCoroutine(HarvestTimer()); // Starta direkt
         }
 
-        // Server Coroutine
         [Server]
         private IEnumerator HarvestTimer()
         {
@@ -247,12 +257,11 @@ namespace RTSGAME
             Debug.Log($"Harvester {netId} starting harvest timer ({pickupDuration}s) for {harvestingTargetId}");
             yield return new WaitForSeconds(pickupDuration);
 
-            if (currentState == HarvesterState.Harvesting && targetCrystalNetId == harvestingTargetId) // Använd targetCrystalNetId här!
-            {
+            if (currentState == HarvesterState.Harvesting && targetCrystalNetId == harvestingTargetId)
+            { // Använd targetCrystalNetId
                 HarvestableCrystal finalTargetCrystal = null;
                 if (NetworkServer.spawned.TryGetValue(harvestingTargetId, out var id)) finalTargetCrystal = id.GetComponent<HarvestableCrystal>();
-
-                // Använd propertyn TargetedByNetId här!
+                // Använd TargetedByNetId
                 if (finalTargetCrystal != null && finalTargetCrystal.TargetedByNetId == this.netId)
                 {
                     Server_CompleteGathering(finalTargetCrystal);
@@ -269,18 +278,19 @@ namespace RTSGAME
         {
             if (crystal == null) return;
             CrystalType gatheredType = crystal.crystalType;
+            int gatheredValue = crystal.valuePerUnit;
             if (currentLoad < carryCapacity && (carriedCrystalType == CrystalType.None || carriedCrystalType == gatheredType))
             {
                 if (carriedCrystalType == CrystalType.None) { carriedCrystalType = gatheredType; }
                 currentLoad++;
-                // Debug.Log($"Harvester {netId} gathered crystal {crystal.netId}. Load: {currentLoad}/{carryCapacity}. Type: {carriedCrystalType}");
-                crystal.Server_HarvestComplete();
+                // Debug.Log($"Harvester {netId} gathered crystal {crystal.netId}.");
+                crystal.Server_HarvestComplete(); // Ber kristallen förstöra sig
                 currentTargetCrystalCache = null; targetCrystalNetId = 0;
                 Server_FindWork();
             }
             else
             {
-                Debug.LogWarning($"Harvester {netId} could not gather crystal {crystal.netId}. Load/Type mismatch?");
+                Debug.LogWarning($"Harvester {netId} could not gather crystal {crystal.netId}.");
                 crystal.Server_TryRelease(this.netId);
                 Server_FindWork();
             }
@@ -295,8 +305,7 @@ namespace RTSGAME
 
             Vector3 targetPos = currentTargetRefineryCache.dockingPoint != null ? currentTargetRefineryCache.dockingPoint.position : currentTargetRefineryCache.transform.position;
             float distance = Vector3.Distance(transform.position, targetPos);
-            // Använd interactionRange från ConstructionWorker här, eller egen variabel
-            float depositRange = 2.0f; // Exempelvärde
+            float depositRange = pickupRange; // Återanvänd eller egen variabel
             if (distance > depositRange * 1.1f) { Server_TransitionToState(HarvesterState.MovingToRefinery, 0, targetRefineryNetId); movementComponent?.Server_SetDestination(targetPos); return; }
 
             bool accepted = currentTargetRefineryCache.Server_RequestDeposit(this.netIdentity, currentLoad, carriedCrystalType);
@@ -316,44 +325,31 @@ namespace RTSGAME
             }
         }
 
-        // Server-metod för att hitta jobb (kristall eller refinery)
         [Server]
         public void Server_FindWork()
         {
             Server_StopCurrentWorkCoroutine(true);
-
-            if (currentLoad >= carryCapacity)
-            {
-                Server_FindRefineryAndMove();
-            }
+            if (currentLoad >= carryCapacity) { Server_FindRefineryAndMove(); }
             else
             {
                 HarvestableCrystal targetCrystal = null;
-                if (carriedCrystalType != CrystalType.None)
-                {
-                    targetCrystal = Server_FindClosestAvailableCrystalOfType(carriedCrystalType);
-                }
+                if (carriedCrystalType != CrystalType.None) { targetCrystal = Server_FindClosestAvailableCrystalOfType(carriedCrystalType); }
                 if (targetCrystal == null)
                 {
-                    if (currentLoad > 0) { Server_FindRefineryAndMove(); return; } // Om vi har last men inte hittar mer
+                    if (currentLoad > 0) { Server_FindRefineryAndMove(); return; }
                     carriedCrystalType = CrystalType.None; currentLoad = 0;
                     targetCrystal = Server_FindClosestAvailableCrystal();
                 }
-
                 if (targetCrystal != null)
                 {
-                    if (targetCrystal.Server_TryReserve(this.netIdentity))
-                    {
-                        Server_TransitionToState(HarvesterState.MovingToCrystal, targetCrystal.netId, 0);
-                        movementComponent?.Server_SetDestination(targetCrystal.transform.position);
-                    }
-                    else { Server_TransitionToState(HarvesterState.Idle, 0, 0); } // Race condition
+                    if (targetCrystal.Server_TryReserve(this.netId)) { Server_TransitionToState(HarvesterState.MovingToCrystal, targetCrystal.netId, 0); movementComponent?.Server_SetDestination(targetCrystal.transform.position); }
+                    else { Server_TransitionToState(HarvesterState.Idle, 0, 0); }
                 }
-                else { Server_TransitionToState(HarvesterState.Idle, 0, 0); } // Inget jobb alls
+                else { Server_TransitionToState(HarvesterState.Idle, 0, 0); }
             }
         }
 
-        // --- Server Find Methods (Använder Physics Query) ---
+        // --- Server Find Methods (Using Physics Query) ---
         [Server]
         private HarvestableCrystal Server_FindClosestAvailableCrystal()
         {
@@ -368,7 +364,7 @@ namespace RTSGAME
         [Server]
         private HarvestableCrystal FindClosestCrystalInternal(CrystalType requiredType)
         {
-            if (queryResults == null) queryResults = new Collider[maxQueryColliders]; // Initiera om null
+            if (queryResults == null) queryResults = new Collider[maxQueryColliders];
             int hitCount = Physics.OverlapSphereNonAlloc(transform.position, initialSearchRadius, queryResults, resourceLayerMask);
             HarvestableCrystal closestCrystal = null; float closestDistSqr = float.MaxValue;
             for (int i = 0; i < hitCount; i++)
@@ -388,15 +384,14 @@ namespace RTSGAME
         private void Server_FindRefineryAndMove()
         {
             if (queryResults == null) queryResults = new Collider[maxQueryColliders];
-            int hitCount = Physics.OverlapSphereNonAlloc(transform.position, initialSearchRadius * 2, queryResults, refineryLayerMask); // Sök längre
+            int hitCount = Physics.OverlapSphereNonAlloc(transform.position, initialSearchRadius * 2, queryResults, refineryLayerMask);
             RefineryBuilding closestRefinery = null; float closestDistSqr = float.MaxValue; uint closestRefineryId = 0;
             for (int i = 0; i < hitCount; i++)
             {
                 if (queryResults[i].TryGetComponent<RefineryBuilding>(out RefineryBuilding refinery))
                 {
-                    // TODO: Ägarkoll eller lagkoll?
                     if (refinery.OwnerNetId == this.ownerNetId)
-                    { // Exempel: Måste vara vårt eget
+                    { // Måste vara vårt eget?
                         float distSqr = (refinery.transform.position - transform.position).sqrMagnitude;
                         if (distSqr < closestDistSqr) { closestDistSqr = distSqr; closestRefinery = refinery; closestRefineryId = refinery.netId; }
                     }
@@ -413,7 +408,6 @@ namespace RTSGAME
             Debug.LogWarning($"Harvester {netId} task failed: {reason}");
             GoToIdleStateLocally("Task failed");
         }
-        // Target_DepositComplete behövs inte om servern sköter allt direkt
 
         // --- Client-Side Helper Methods ---
         private IEnumerator FindTargetCrystalLocally(uint targetNetId)
@@ -429,7 +423,7 @@ namespace RTSGAME
         private void GoToIdleStateLocally(string reason)
         {
             currentTargetCrystalCache = null; currentTargetRefineryCache = null;
-            // Animation uppdateras via hook
+            // Låt SyncVar hooken sköta animation
         }
 
     } // End of class HarvesterUnit

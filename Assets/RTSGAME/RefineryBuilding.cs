@@ -67,7 +67,7 @@ namespace RTSGAME
         public bool Server_RequestDeposit(NetworkIdentity harvesterIdentity, int load, CrystalType type)
         {
             // Kan bara ta emot om vi är operationella och har ström
-            if (currentState != BuildingState.Operational || isCurrentlyUnloading)
+            if (CurrentState != BuildingState.Operational || isCurrentlyUnloading)
             {
                 // Debug.Log($"Refinery {buildingName} is busy or not operational. Denying deposit from {harvesterIdentity?.netId ?? 0}.");
                 return false; // Upptaget eller avstängt
@@ -80,7 +80,7 @@ namespace RTSGAME
             // Acceptera förfrågan
             isCurrentlyUnloading = true; // Sätt upptagen-flagga (synkas till klienter)
             currentUnloaderNetId = harvesterIdentity.netId; // Spara vem som lastar av
-            Debug.Log($"Refinery {buildingName} (NetId: {netId}): Starting unload for Harvester {currentUnloaderNetId}. Load: {load}, Type: {type}");
+            Debug.Log($"Refinery {BuildingName} (NetId: {netId}): Starting unload for Harvester {currentUnloaderNetId}. Load: {load}, Type: {type}");
 
             // Starta server-coroutine för urlastning
             StartCoroutine(Server_UnloadProcess(harvesterIdentity, load, type));
@@ -122,21 +122,21 @@ namespace RTSGAME
                     if (harvesterOwnerId != 0)
                     {
                         ResourceManager.Instance.Server_AddCredits(harvesterOwnerId, totalValue);
-                        Debug.Log($"Refinery {buildingName} added {totalValue} credits to player {harvesterOwnerId}.");
+                        Debug.Log($"Refinery {BuildingName} added {totalValue} credits to player {harvesterOwnerId}.");
                     }
-                    else { Debug.LogWarning($"Refinery {buildingName}: Depositing harvester {harvesterNetId} has no owner!"); }
+                    else { Debug.LogWarning($"Refinery {BuildingName}: Depositing harvester {harvesterNetId} has no owner!"); }
                 }
-                else { Debug.LogError($"Refinery {buildingName}: ResourceManager not found or value was zero!"); }
+                else { Debug.LogError($"Refinery {BuildingName}: ResourceManager not found or value was zero!"); }
 
                 // Meddela harvesterns server-objekt att den är klar
                 harvesterScript.Server_AcknowledgeDepositComplete();
             }
             else
             {
-                Debug.LogWarning($"Refinery {buildingName}: Harvester {harvesterNetId} was not found or ready when unload finished.", this);
+                Debug.LogWarning($"Refinery {BuildingName}: Harvester {harvesterNetId} was not found or ready when unload finished.", this);
             }
 
-            Debug.Log($"Refinery {buildingName}: Unload complete for Harvester {harvesterNetId}.");
+            Debug.Log($"Refinery {BuildingName}: Unload complete for Harvester {harvesterNetId}.");
             isCurrentlyUnloading = false; // Bli ledig igen
             currentUnloaderNetId = 0; // Rensa vem som lastade av
 

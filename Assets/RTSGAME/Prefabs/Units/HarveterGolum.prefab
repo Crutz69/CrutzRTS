@@ -11,9 +11,7 @@ GameObject:
   - component: {fileID: 580845290242618797}
   - component: {fileID: 9198397552443054274}
   - component: {fileID: 5500722883176585643}
-  - component: {fileID: 3915365283226587963}
   - component: {fileID: 8630375245296109789}
-  - component: {fileID: 5890136648850747092}
   m_Layer: 0
   m_Name: HarveterGolum
   m_TagString: Untagged
@@ -83,29 +81,6 @@ CapsuleCollider:
   m_Height: 1
   m_Direction: 1
   m_Center: {x: 0, y: 0, z: 0}
---- !u!114 &3915365283226587963
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3828074620251132450}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e88c0cc578b0ef14d858aeb158b45336, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  maxHealth: 400
-  currentHealth: 400
-  attackDamage: 0
-  attackRange: 0
-  attackCooldown: 1.5
-  teamID: 0
-  isSelected: 0
-  currentState: 0
-  healthBarPrefab: {fileID: 113855246008935206, guid: afb206cdc63c1f04ab05c5fffe655075, type: 3}
-  healthBarSpawnPoint: {fileID: 335029792525711644}
-  healthBarOffset: {x: 0, y: 1.5, z: 0}
 --- !u!95 &8630375245296109789
 Animator:
   serializedVersion: 7
@@ -128,24 +103,6 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
---- !u!114 &5890136648850747092
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3828074620251132450}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1feb618f25081884aa9502c662fd748d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  carryCapacity: 10
-  pickupRange: 4
-  pickupDuration: 5
-  inventoryBarPrefab: {fileID: 2490545778530277960, guid: 284f2d058c3b03a4bbe3c57cbc6ea5de, type: 3}
-  currentLoad: 0
-  currentState: 0
 --- !u!1 &8385370776762931709
 GameObject:
   m_ObjectHideFlags: 0

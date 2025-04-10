@@ -85,10 +85,10 @@ namespace RTSGAME
             Debug.Log($"OnStartLocalPlayer: {playerName} (Team {teamID}, Color {playerColor})");
 
             // Hitta och koppla lokala system
-            inputManager = FindObjectOfType<InputManager>(); // Eller via Singleton/Service Locator
-            selectionManager = FindObjectOfType<SelectionManager>();
-            uiManager = FindObjectOfType<UIManager>();
-            // cameraController = FindObjectOfType<CameraController>();
+            inputManager = FindFirstObjectByType<InputManager>(); // Eller via Singleton/Service Locator
+            selectionManager = FindFirstObjectByType<SelectionManager>();
+            uiManager = FindFirstObjectByType<UIManager>();
+            // cameraController = FindFirstObjectByType<CameraController>();
 
             if (inputManager != null) inputManager.AssignLocalPlayer(this); else Debug.LogError("InputManager not found!");
             if (uiManager != null) uiManager.SetLocalPlayer(this); else Debug.LogError("UIManager not found!");

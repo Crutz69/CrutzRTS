@@ -852,6 +852,7 @@ GameObject:
   m_Component:
   - component: {fileID: 4915287140547292}
   - component: {fileID: 39937098101468226}
+  - component: {fileID: 9062445675901616031}
   m_Layer: 8
   m_Name: Crystalsv04
   m_TagString: Untagged
@@ -894,7 +895,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 93dbbd0cc4d54314b82dd7a9ba92a236, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  type: 3
-  value: 200
-  isTargeted: 0
-  targetedBy: {fileID: 0}
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  crystalType: 1
+  valuePerUnit: 100
+--- !u!114 &9062445675901616031
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1870747671944572}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sceneId: 0
+  _assetId: 933371243
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0

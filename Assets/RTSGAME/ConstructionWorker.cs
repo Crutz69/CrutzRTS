@@ -16,7 +16,7 @@ namespace RTSGAME
         [Tooltip("Amount of 'health' repaired per second.")]
         [SerializeField] private float repairAmountPerSecond = 20f;
         [Tooltip("Amount of 'progress' added per second when constructing.")]
-        [SerializeField] private float constructionWorkPerSecond = 1f;
+        [SerializeField] private float constructionWorkPerSecond = 1;
 
         // --- State Machine & Target ---
         [SyncVar(hook = nameof(OnStateChangedHook))]
