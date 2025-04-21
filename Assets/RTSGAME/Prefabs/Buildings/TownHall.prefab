@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2359108185655835429}
   - component: {fileID: 4121413302978864625}
+  - component: {fileID: 8647067426822378935}
   m_Layer: 0
   m_Name: TownHall
   m_TagString: Untagged
@@ -67,6 +68,23 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 0}
+--- !u!114 &8647067426822378935
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5220835803963366794}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sceneId: 0
+  _assetId: 3333385041
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
 --- !u!1001 &451972287161116633
 PrefabInstance:
   m_ObjectHideFlags: 0

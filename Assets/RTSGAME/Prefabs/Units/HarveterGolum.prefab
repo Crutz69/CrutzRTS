@@ -12,6 +12,11 @@ GameObject:
   - component: {fileID: 9198397552443054274}
   - component: {fileID: 5500722883176585643}
   - component: {fileID: 8630375245296109789}
+  - component: {fileID: 3578492606932958380}
+  - component: {fileID: 2283542433049512979}
+  - component: {fileID: 306269175209965257}
+  - component: {fileID: 3102443595558751077}
+  - component: {fileID: 4900599002922821219}
   m_Layer: 0
   m_Name: HarveterGolum
   m_TagString: Untagged
@@ -28,7 +33,7 @@ Transform:
   m_GameObject: {fileID: 3828074620251132450}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -10.18, y: 0.0000009536743, z: -28.12}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -103,6 +108,140 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!114 &3578492606932958380
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3828074620251132450}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sceneId: 0
+  _assetId: 2639102434
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
+--- !u!114 &2283542433049512979
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3828074620251132450}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a553cb17010b2403e8523b558bffbc14, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 1
+  syncMode: 0
+  syncInterval: 0
+  target: {fileID: 580845290242618797}
+  syncPosition: 1
+  syncRotation: 1
+  syncScale: 0
+  onlySyncOnChange: 1
+  compressRotation: 1
+  interpolatePosition: 1
+  interpolateRotation: 1
+  interpolateScale: 1
+  coordinateSpace: 0
+  timelineOffset: 1
+  showGizmos: 0
+  showOverlay: 0
+  overlayColor: {r: 0, g: 0, b: 0, a: 0.5}
+  bufferResetMultiplier: 3
+  useFixedUpdate: 0
+  positionSensitivity: 0.01
+  rotationSensitivity: 0.01
+  scaleSensitivity: 0.01
+--- !u!114 &306269175209965257
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3828074620251132450}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9c47795197dbaa4baf9cf3957c1bcd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  maxHealth: 100
+  OnServerDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDamaged:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &3102443595558751077
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3828074620251132450}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17ee97d90ba77764cbe450becdbcb153, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  agent: {fileID: 9198397552443054274}
+  unit: {fileID: 4900599002922821219}
+  defaultStoppingDistance: 0.5
+--- !u!114 &4900599002922821219
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3828074620251132450}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1feb618f25081884aa9502c662fd748d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  unitDisplayName: Harvester
+  ownerNetId: 0
+  healthComponent: {fileID: 306269175209965257}
+  movementComponent: {fileID: 3102443595558751077}
+  networkTransform: {fileID: 2283542433049512979}
+  mainRenderer: {fileID: 5600444825379296469}
+  unitCollider: {fileID: 5500722883176585643}
+  animator: {fileID: 8630375245296109789}
+  selectionIndicator: {fileID: 3828074620251132450}
+  healthBarSlider: {fileID: 0}
+  healthBarCanvasGO: {fileID: 8385370776762931709}
+  carryCapacity: 5
+  interactionRange: 2
+  gatherDuration: 1.5
+  resourceLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  refineryLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  initialSearchRadius: 500
+  maxQueryColliders: 320
+  inventoryBarSlider: {fileID: 0}
+  inventoryBarFillImage: {fileID: 0}
+  inventoryBarCanvasGO: {fileID: 0}
 --- !u!1 &8385370776762931709
 GameObject:
   m_ObjectHideFlags: 0
@@ -194,5 +333,10 @@ PrefabInstance:
 --- !u!4 &5498884051419854269 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4939805754032154, guid: 93c0dd75ddc1c9f4dabe9f061ef19748, type: 3}
+  m_PrefabInstance: {fileID: 5502969193001809319}
+  m_PrefabAsset: {fileID: 0}
+--- !u!137 &5600444825379296469 stripped
+SkinnedMeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 137007628262973810, guid: 93c0dd75ddc1c9f4dabe9f061ef19748, type: 3}
   m_PrefabInstance: {fileID: 5502969193001809319}
   m_PrefabAsset: {fileID: 0}

@@ -79,32 +79,39 @@ namespace RTSGAME
 
         public override void OnStartLocalPlayer()
         {
-            // Körs BARA på den egna klienten för denna spelare
             base.OnStartLocalPlayer();
             gameObject.name = $"LOCAL Player - {playerName} ({netId})";
             Debug.Log($"OnStartLocalPlayer: {playerName} (Team {teamID}, Color {playerColor})");
 
-            // Hitta och koppla lokala system
-            inputManager = FindFirstObjectByType<InputManager>(); // Eller via Singleton/Service Locator
-            selectionManager = FindFirstObjectByType<SelectionManager>();
-            uiManager = FindFirstObjectByType<UIManager>();
-            // cameraController = FindFirstObjectByType<CameraController>();
+            // Hitta managers via deras Singleton Instance
+            inputManager = InputManager.Instance;
+            selectionManager = SelectionManager.Instance; // Kan behövas för att läsa av val senare
+            uiManager = UIManager.Instance;
+            // cameraController = CameraController.Instance;
 
-            if (inputManager != null) inputManager.AssignLocalPlayer(this); else Debug.LogError("InputManager not found!");
-            if (uiManager != null) uiManager.SetLocalPlayer(this); else Debug.LogError("UIManager not found!");
-            // if (cameraController != null) cameraController.EnableControl(); else Debug.LogError("CameraController not found!");
+            // Kontrollera att managers hittades och registrera denna NetworkPlayer
+            if (inputManager != null)
+            {
+                inputManager.AssignLocalPlayer(this); // Ge InputManager referensen!
+            }
+            else { Debug.LogError("NetworkPlayer could not find InputManager Instance!"); }
 
-            // Uppdatera UI med initiala värden direkt
-            OnCreditsChanged(0, credits);
-            OnManaChanged(0, mana);
-            OnMaxManaChanged(0, maxMana);
-            OnPlayerNameChanged("", playerName);
-            OnTeamIDChanged(0, teamID);
-            OnColorChanged(Color.clear, playerColor);
-            OnStatusChanged(PlayerStatus.Spectating, status); // Tvinga uppdatering
+            if (uiManager != null)
+            {
+                uiManager.SetLocalPlayer(this); // Ge UIManager referensen!
+                                                // Uppdatera UI initialt (detta kan ligga kvar eller flyttas till UIManager.SetLocalPlayer)
+                OnCreditsChanged(0, credits);
+                OnManaChanged(0, mana);
+                OnMaxManaChanged(0, maxMana);
+                OnPlayerNameChanged("", playerName);
+                OnTeamIDChanged(0, teamID);
+                OnColorChanged(Color.clear, playerColor);
+                OnStatusChanged(PlayerStatus.Spectating, status);
+            }
+            else { Debug.LogError("NetworkPlayer could not find UIManager Instance!"); }
 
-            // Begär ev. extra synk från servern om nödvändigt
-            // CmdRequestFullSync();
+            if (selectionManager == null) Debug.LogError("NetworkPlayer could not find SelectionManager Instance!");
+            // SelectionManager behöver oftast ingen direkt referens TILL NetworkPlayer.
         }
 
         // --- Input Handling (Conceptual - Anropas från InputManager) ---
