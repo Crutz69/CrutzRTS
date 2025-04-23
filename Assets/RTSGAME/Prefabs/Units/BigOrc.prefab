@@ -43,7 +43,11 @@ GameObject:
   - component: {fileID: 7794598042968417274}
   - component: {fileID: 3212234412243152349}
   - component: {fileID: 3890316518175409715}
-  m_Layer: 0
+  - component: {fileID: 2114605168653055432}
+  - component: {fileID: 7384992687958054567}
+  - component: {fileID: 3135880376944012664}
+  - component: {fileID: 6673548234095652922}
+  m_Layer: 6
   m_Name: BigOrc
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -129,6 +133,109 @@ MonoBehaviour:
   serverOnly: 0
   visibility: 0
   hasSpawned: 0
+--- !u!114 &2114605168653055432
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2531765302409578728}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a553cb17010b2403e8523b558bffbc14, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 1
+  syncMode: 0
+  syncInterval: 0
+  target: {fileID: 8737377088465955400}
+  syncPosition: 1
+  syncRotation: 1
+  syncScale: 0
+  onlySyncOnChange: 1
+  compressRotation: 1
+  interpolatePosition: 1
+  interpolateRotation: 1
+  interpolateScale: 1
+  coordinateSpace: 0
+  timelineOffset: 1
+  showGizmos: 0
+  showOverlay: 0
+  overlayColor: {r: 0, g: 0, b: 0, a: 0.5}
+  bufferResetMultiplier: 3
+  useFixedUpdate: 0
+  positionSensitivity: 0.01
+  rotationSensitivity: 0.01
+  scaleSensitivity: 0.01
+--- !u!114 &7384992687958054567
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2531765302409578728}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9c47795197dbaa4baf9cf3957c1bcd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  maxHealth: 100
+  OnServerDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDamaged:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &3135880376944012664
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2531765302409578728}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17ee97d90ba77764cbe450becdbcb153, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  agent: {fileID: 0}
+  unit: {fileID: 0}
+  defaultStoppingDistance: 0.5
+--- !u!114 &6673548234095652922
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2531765302409578728}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e88c0cc578b0ef14d858aeb158b45336, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  unitDisplayName: Unit
+  ownerNetId: 0
+  healthComponent: {fileID: 0}
+  movementComponent: {fileID: 0}
+  networkTransform: {fileID: 0}
+  mainRenderer: {fileID: 0}
+  unitCollider: {fileID: 0}
+  animator: {fileID: 0}
+  selectionIndicator: {fileID: 0}
+  healthBarSlider: {fileID: 0}
+  healthBarCanvasGO: {fileID: 0}
 --- !u!1001 &6177283092783261311
 PrefabInstance:
   m_ObjectHideFlags: 0

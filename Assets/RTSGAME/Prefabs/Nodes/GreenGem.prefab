@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 5453989292341247802}
   - component: {fileID: 5333488497707286352}
   - component: {fileID: 8724151513373429276}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: GreenGem
   m_TagString: Untagged
   m_Icon: {fileID: 0}

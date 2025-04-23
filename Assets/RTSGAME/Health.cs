@@ -12,133 +12,140 @@ namespace RTSGAME
         [Header("Settings")]
         [SerializeField] private float maxHealth = 100f;
 
-        // SyncVar för att synka aktuell hälsa till alla klienter
-        // Hook anropas på klienter när värdet ändras
         [SyncVar(hook = nameof(OnHealthChanged_Hook))]
         private float currentHealth;
 
-        // Property för att komma åt maxhälsa utifrån (read-only)
+        // Properties
         public float MaxHealth => maxHealth;
-        // Property för att läsa aktuell hälsa (alla kan läsa, bara servern ändrar via metoder)
         public float CurrentHealth => currentHealth;
-        // Property för att enkelt kolla om död
         public bool IsDead => currentHealth <= 0;
 
-        // Events för att koppla effekter/logik
+        // Events
         [Header("Events")]
-        public UnityEvent OnServerDied = new UnityEvent(); // Triggas på servern när hälsa når 0
-        public UnityEvent OnClientDied = new UnityEvent(); // Triggas på klienter via RPC när död inträffar
-        public UnityEvent OnClientDamaged = new UnityEvent(); // Triggas på klienter via RPC vid skada
+        public UnityEvent OnServerDied = new UnityEvent();
+        public UnityEvent OnClientDied = new UnityEvent();
+        public UnityEvent OnClientDamaged = new UnityEvent();
 
-        // Referens tillbaka till huvudscriptet (Unit/Building) för att meddela UI-uppdatering
-        private Unit unitReference; // Antag att vi är på en Unit
-        private Building buildingReference; // Eller en Building
+        // Referenser
+        private Unit unitReference;
+        private Building buildingReference;
 
         private void Awake()
         {
-            // Försök hitta Unit eller Building på samma GameObject
             unitReference = GetComponent<Unit>();
             buildingReference = GetComponent<Building>();
         }
-
 
         // --- Server Logic ---
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-            // Servern sätter initial hälsa
             Server_SetInitialHealth();
         }
 
-        /// <summary>
-        /// Sets initial health on the server. Typically called when the object spawns.
-        /// </summary>
         [Server]
         public void Server_SetInitialHealth()
         {
             currentHealth = maxHealth;
-            // Se till att eventuella döds-flaggor är återställda om objektet återanvänds (pooling)
         }
 
-        /// <summary>
-        /// Applies damage to this object. ONLY callable on the server.
-        /// </summary>
-        /// <param name="amount">Amount of damage to apply.</param>
-        /// <returns>True if damage was taken (object was not already dead).</returns>
+        // --- Skada & Reparation/Läkning (Server) ---
+
         [Server]
-        public bool Server_TakeDamage(float amount)
+        public bool Server_TakeDamage(float baseDamage, DamageType damageType, GameObject damageDealer = null) // Uppdaterad för DamageType
         {
-            // Ignorera skada om redan död eller om skadan är ogiltig
-            if (currentHealth <= 0 || amount <= 0)
+            if (currentHealth <= 0 || baseDamage <= 0) return false;
+
+            // Hämta pansartyp
+            ArmorType myArmorType = ArmorType.Unarmored; // Default
+            Unit unit = GetComponent<Unit>();
+            if (unit != null) { myArmorType = unit.ArmorType; } // Antag Unit har ArmorType
+            else
             {
-                return false;
+                Building building = GetComponent<Building>();
+                if (building != null) { myArmorType = building.ArmorType; } // Antag Building har ArmorType
             }
 
-            // Applicera skada, säkerställ att den inte går under 0
-            currentHealth = Mathf.Max(currentHealth - amount, 0f);
-            Debug.Log($"{gameObject.name} (NetId: {netId}) took {amount} damage. Health: {currentHealth}/{maxHealth}");
+            // Beräkna slutlig skada
+            float finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, myArmorType); // Använd kalkylatorn
 
-            // Trigga skadeeffekt på klienter
+            // Applicera skada
+            currentHealth = Mathf.Max(currentHealth - finalDamage, 0f);
+            Debug.Log($"{gameObject.name} took {finalDamage} ({damageType} vs {myArmorType}). Health: {currentHealth}/{maxHealth}");
+
             Rpc_DamageEffect();
 
-            // Kolla om objektet dog
             if (currentHealth <= 0)
             {
-                Server_Die();
+                Server_Die(/* Skicka ev. med damageDealer eller damageType */);
             }
-
             return true;
         }
 
-        /// <summary>
-        /// Heals this object. ONLY callable on the server.
-        /// </summary>
         [Server]
         public void Server_Heal(float amount)
         {
-            if (currentHealth <= 0 || amount <= 0 || currentHealth >= maxHealth)
-            {
-                return; // Kan inte hela döda, negativa värden, eller om redan full hälsa
-            }
+            if (currentHealth <= 0 || amount <= 0 || currentHealth >= maxHealth) return;
             currentHealth = Mathf.Min(currentHealth + amount, maxHealth);
-            Debug.Log($"{gameObject.name} (NetId: {netId}) healed {amount}. Health: {currentHealth}/{maxHealth}");
-            // Behövs RPC för heal-effekt? Kanske inte, UI uppdateras via hook.
+            // Debug.Log($"{gameObject.name} healed {amount}. Health: {currentHealth}/{maxHealth}");
         }
 
-
+        // ---- NYLIGEN TILLAGD METOD ----
         /// <summary>
-        /// Handles the death logic on the server.
+        /// Repairs (heals) this object by a certain amount. ONLY callable on the server.
+        /// Clamps health at maximum. Does nothing if already dead or at max health.
         /// </summary>
         [Server]
-        private void Server_Die()
+        public void Server_Repair(float amount)
         {
+            // Kan inte reparera döda objekt eller om skadan är ogiltig/negativ
+            if (currentHealth <= 0 || amount <= 0)
+            {
+                return;
+            }
+            // Kan inte reparera om redan full hälsa
+            if (currentHealth >= maxHealth)
+            {
+                return;
+            }
+
+            // Applicera reparation (läkning), se till att den inte går över max
+            currentHealth = Mathf.Min(currentHealth + amount, maxHealth);
+
+            // Logga eventuellt (kan bli spammy vid kontinuerlig reparation)
+            // Debug.Log($"{gameObject.name} (NetId: {netId}) repaired {amount}. Health: {currentHealth}/{maxHealth}");
+
+            // SyncVar-hooken OnHealthChanged_Hook körs automatiskt på klienter.
+        }
+        // ---- SLUT PÅ NY METOD ----
+
+
+        // --- Dödshantering (Server) ---
+        [Server]
+        private void Server_Die(/* DamageType killingBlowType = DamageType.Normal */)
+        { // Kan ta emot dödsorsak
             Debug.Log($"{gameObject.name} (NetId: {netId}) Died.");
-            // Trigga server-specifika händelser (t.ex. ge poäng, meddela GameManager)
             OnServerDied?.Invoke();
 
-            // Trigga visuella/ljud-effekter på alla klienter
-            Rpc_DieEffect();
+            // TODO: Skicka RPC baserat på dödsorsak?
+            // RpcPlayElementalDeath(killingBlowType);
+            // RpcPlaySinkEffect(); etc.
+            Rpc_DieEffect(); // Generell RPC för nu
 
-            // TODO: Servern bör inaktivera relevanta komponenter direkt för att stoppa logik
+            // Inaktivera komponenter
             Collider col = GetComponent<Collider>(); if (col != null) col.enabled = false;
-            UnitMovement mv = GetComponent<UnitMovement>(); if (mv != null) mv.Server_StopMovement(); // Stoppa rörelse
-                                                                                                      // Stoppa ev. stridskomponent
+            UnitMovement mv = GetComponent<UnitMovement>(); if (mv != null) mv.Server_StopMovement();
+            // Stoppa andra komponenter...
 
-            // Starta förstörelseprocessen (med fördröjning för effekter)
-            // Mirror hanterar att objektet tas bort från klienter när NetworkServer.Destroy anropas.
-            // Använd en Coroutine på en manager eller en separat komponent för fördröjningen.
-            // Detta enkla exempel förstör direkt (mindre snyggt):
-            // NetworkServer.Destroy(gameObject);
-            // Bättre:
-            StartCoroutine(Server_DestroyAfterDelay(3.0f)); // Starta Coroutine på detta objekt (eller flytta till manager)
+            // Förstör objektet efter fördröjning
+            StartCoroutine(Server_DestroyAfterDelay(3.0f));
         }
 
         [Server]
         private IEnumerator Server_DestroyAfterDelay(float delay)
         {
-            // Skicka RPC för att dölja direkt på klienter? Eller lita på att Destroy löser det?
-            // Rpc_HideOnDeath();
+            // Rpc_HideOnDeath(); // Dölj visuellt direkt?
             yield return new WaitForSeconds(delay);
             Debug.Log($"Destroying {gameObject.name} (NetId: {netId}) on server.");
             NetworkServer.Destroy(gameObject);
@@ -147,53 +154,45 @@ namespace RTSGAME
 
         // --- Client Logic (RPCs & Hooks) ---
 
-        /// <summary>SyncVar Hook called on clients when currentHealth changes.</summary>
         private void OnHealthChanged_Hook(float oldHealth, float newHealth)
         {
-            // Uppdatera UI (via Unit/Building scriptet)
+            // Uppdatera UI via referens till Unit/Building
+            // Gör UpdateHealthBarUI public på Unit/Building
             if (unitReference != null)
             {
-                unitReference.OnHealthUpdated(oldHealth, newHealth); // Meddela Unit-scriptet
+                unitReference.UpdateHealthBarUI(oldHealth, newHealth);
             }
             else if (buildingReference != null)
             {
-                // buildingReference.OnHealthUpdated(oldHealth, newHealth); // Meddela Building-scriptet (om det behöver veta)
-                // Kanske uppdatera Building's health bar direkt?
-                buildingReference.SendMessage("UpdateHealthBarUI", new object[] { oldHealth, newHealth }, SendMessageOptions.DontRequireReceiver);
+                buildingReference.UpdateHealthBarUI(oldHealth, newHealth);
             }
 
-            // Spela eventuellt skade-ljud lokalt om hälsan minskade?
-            // Kan vara svårt att skilja från RPC, använd Rpc_DamageEffect för det.
+            // Spela skade-ljud om vi tog skada? OnClientDamaged är kanske bättre.
+            // if (newHealth < oldHealth && isLocalPlayer) { /* Spela ljud */ }
         }
 
-        /// <summary>ClientRpc called by server when damage is taken.</summary>
         [ClientRpc]
         private void Rpc_DamageEffect()
         {
-            // Trigga lokala effekter (ljud, partiklar, skärmskakning?)
+            // Trigga lokala effekter
             // Debug.Log($"Client {netId}: Received damage effect RPC.");
             OnClientDamaged?.Invoke();
         }
 
-        /// <summary>ClientRpc called by server when the object dies.</summary>
         [ClientRpc]
         private void Rpc_DieEffect()
         {
-            // Trigga lokala dödseffekter (explosion, ljud, ragdoll?)
+            // Trigga lokala dödseffekter
             Debug.Log($"Client {netId}: Received die effect RPC.");
             OnClientDied?.Invoke();
-            // Dölj objektet visuellt direkt på klienten?
+            // Dölj objektet visuellt direkt på klienten
             Collider col = GetComponent<Collider>(); if (col != null) col.enabled = false;
             Renderer rend = GetComponentInChildren<Renderer>(); if (rend != null) rend.enabled = false;
-            // Stäng av health bar
-            if (unitReference) unitReference.Deselect(); // För att dölja UI via Unit
-            if (buildingReference) buildingReference.Deselect(); // För att dölja UI via Building
+            // Stäng av health bar via Unit/Building
+            unitReference?.Deselect();
+            buildingReference?.Deselect();
+            // Inaktivera hela objektet lokalt? Kan ge problem om servern fortfarande refererar det kort.
+            // gameObject.SetActive(false);
         }
-
-        /* // Valfri RPC för att dölja objektet helt på klienten innan Destroy
-        [ClientRpc]
-        private void Rpc_HideOnDeath() {
-             gameObject.SetActive(false); // Eller inaktivera renderers/colliders
-        } */
     }
 }

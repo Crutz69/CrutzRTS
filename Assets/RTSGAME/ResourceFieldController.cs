@@ -1,11 +1,13 @@
 // Assets/RTSGAME/Scripts/World/ResourceFieldController.cs
 using UnityEngine;
-using System.Collections.Generic; // Behövs för List<>
-using Mirror; // <-- Lägg till Mirror
+using System.Collections.Generic;
+using Mirror;
+#if UNITY_EDITOR
+using UnityEditor; // Behövs för Handles
+#endif
 
-namespace RTSGAME // <-- Lägg till Namespace
+namespace RTSGAME
 {
-    // Ärver från NetworkBehaviour nu
     public class ResourceFieldController : NetworkBehaviour
     {
         [Header("Field Settings")]
@@ -16,61 +18,72 @@ namespace RTSGAME // <-- Lägg till Namespace
         [Tooltip("Tid i sekunder innan en ny kristall försöker spawnas om det finns plats.")]
         [SerializeField] private float respawnDelay = 5f;
         [Tooltip("Vilken kristall-prefab ska detta fält spawna? MÅSTE ha NetworkIdentity och vara registrerad i NetworkManager.")]
-        [SerializeField] private GameObject crystalPrefab; // Måste vara en registrerad nätverks-prefab!
+        [SerializeField] private GameObject crystalPrefab;
         [Tooltip("Hur många kristaller ska finnas när spelet startar?")]
         [SerializeField] private int initialSpawnCount = 7;
 
-        // --- Server-Side Variables ---
-        // Denna lista och timer hanteras bara på servern
+        [Header("Placement Settings")]
+        [Tooltip("How close to check for obstructions when spawning a crystal.")]
+        [SerializeField] private float placementCheckRadius = 1.0f;
+        [Tooltip("Layers that prevent a crystal from spawning (e.g., other resources, buildings, impassable terrain). Set in Inspector!")]
+        [SerializeField] private LayerMask placementBlockingLayers; // <-- Nytt, mer konfigurerbart fält
+
+        // Server-Side Variables
         private readonly List<GameObject> server_spawnedCrystals = new List<GameObject>();
         private float server_respawnTimer = 0f;
 
         // --- Mirror Callbacks ---
 
-        public override void OnStartServer() // Använd OnStartServer istället för Start för server-logik
+        public override void OnStartServer()
         {
             base.OnStartServer();
 
-            // Validera prefab (bara servern behöver göra detta)
             if (crystalPrefab == null || crystalPrefab.GetComponent<HarvestableCrystal>() == null || crystalPrefab.GetComponent<NetworkIdentity>() == null)
             {
-                Debug.LogError($"ResourceFieldController on '{gameObject.name}' is missing a valid Crystal Prefab with HarvestableCrystal, NetworkIdentity, and registration in NetworkManager!", this);
-                enabled = false; // Stäng av scriptet om prefaben är fel
-                return;
+                Debug.LogError($"ResourceFieldController '{gameObject.name}' has invalid crystalPrefab!", this);
+                enabled = false; return;
+            }
+            // Kolla om spawnable prefabs listan i NetworkManager innehåller denna prefab
+            if (!NetworkManager.singleton.spawnPrefabs.Contains(crystalPrefab))
+            {
+                Debug.LogError($"ResourceFieldController '{gameObject.name}': Crystal Prefab '{crystalPrefab.name}' is not registered in NetworkManager's Spawnable Prefabs list!", this);
+                enabled = false; return;
+            }
+            // Kolla om LayerMask är satt
+            if (placementBlockingLayers.value == 0)
+            { // Varning om ingen blockerande layer är vald
+                Debug.LogWarning($"ResourceFieldController '{gameObject.name}': Placement Blocking Layers mask is not set. Crystals might spawn anywhere!", this);
+                // Sätt en rimlig default? T.ex. Default layer? Eller bara "Resources"?
+                // placementBlockingLayers = LayerMask.GetMask("Resources", "Buildings"); // Exempel
             }
 
+
             initialSpawnCount = Mathf.Min(initialSpawnCount, maxCrystals);
-            SpawnInitialCrystals(); // Servern spawnar initiala kristaller
+            SpawnInitialCrystals();
 
             server_respawnTimer = Random.Range(0f, respawnDelay * 0.5f);
         }
 
-        // Update körs på server och klient, men logiken här är bara för servern
         void Update()
         {
-            // All logik här ska bara köras på servern!
             if (!isServer) return;
-
             Server_Update();
         }
 
         // --- Server-Only Logic ---
 
-        [Server] // Markera tydligt att detta är server-logik
+        [Server]
         void Server_Update()
         {
-            // Rensa listan från förstörda kristaller
-            // Viktigt: Servern vet när objekt förstörs via NetworkServer.Destroy
-            server_spawnedCrystals.RemoveAll(item => item == null); // Effektivare sätt att rensa null-referenser
+            server_spawnedCrystals.RemoveAll(item => item == null);
 
-            // Kolla om vi behöver spawna fler
             if (server_spawnedCrystals.Count < maxCrystals)
             {
                 server_respawnTimer += Time.deltaTime;
                 if (server_respawnTimer >= respawnDelay)
                 {
                     server_respawnTimer = 0f;
-                    Server_TrySpawnCrystal(); // Försök spawna en ny
+                    Server_TrySpawnCrystal();
                 }
             }
         }
@@ -78,79 +91,79 @@ namespace RTSGAME // <-- Lägg till Namespace
         [Server]
         void SpawnInitialCrystals()
         {
-            // Debug.Log($"'{gameObject.name}' spawning initial {initialSpawnCount} crystals on server.");
+            int spawnedCount = 0;
             for (int i = 0; i < initialSpawnCount; i++)
             {
-                bool spawned = false;
                 int attempts = 0;
-                while (!spawned && attempts < 10)
-                {
-                    spawned = Server_TrySpawnCrystal();
+                while (spawnedCount < initialSpawnCount && attempts < 20)
+                { // Försök lite mer intensivt vid start
+                    if (Server_TrySpawnCrystal())
+                    {
+                        spawnedCount++;
+                        break; // Gå till nästa kristall
+                    }
                     attempts++;
                 }
-                if (!spawned) { Debug.LogWarning($"'{gameObject.name}' could not find suitable spot for initial crystal {i + 1} after {attempts} attempts."); }
+                if (attempts >= 20)
+                {
+                    Debug.LogWarning($"'{gameObject.name}' failed to spawn initial crystal {i + 1} after many attempts.");
+                }
             }
+            Debug.Log($"'{gameObject.name}' finished spawning initial crystals. Count: {server_spawnedCrystals.Count}");
         }
 
         [Server]
         bool Server_TrySpawnCrystal()
         {
-            if (crystalPrefab == null) return false; // Redan kollat i OnStartServer, men extra säkerhet
             if (server_spawnedCrystals.Count >= maxCrystals) return false;
 
-            // Hitta slumpmässig position inom radien
-            Vector3 spawnPos = transform.position + Random.insideUnitSphere * fieldRadius;
-            spawnPos.y = transform.position.y; // Håll den på samma höjd som controllern? Eller sök NavMesh pos.
-
-            // Försök hitta giltig position på NavMesh
-            if (UnityEngine.AI.NavMesh.SamplePosition(spawnPos, out UnityEngine.AI.NavMeshHit hit, fieldRadius, UnityEngine.AI.NavMesh.AllAreas)) // Öka sökradien för SamplePosition
+            // Försök hitta en slumpmässig position på NavMesh inom radien
+            for (int tryNum = 0; tryNum < 5; tryNum++) // Försök hitta NavMesh pos några gånger
             {
-                spawnPos = hit.position;
+                Vector3 randomPos = transform.position + Random.insideUnitSphere * fieldRadius;
+                randomPos.y = transform.position.y; // Håll på samma Y-nivå initialt
 
-                // Kolla om platsen är blockerad (använd lämplig LayerMask)
-                float checkRadius = 1.0f; // Hur nära får kristaller spawna varandra/andra objekt?
-                                          // TODO: Definiera blockingLayersMask, exkludera ev. marklager
-                LayerMask blockingLayersMask = ~LayerMask.GetMask("Ground"); // Exempel: Allt utom Ground
-
-                Collider[] hitColliders = Physics.OverlapSphere(spawnPos, checkRadius, blockingLayersMask);
-
-                if (hitColliders.Length == 0) // Platsen är ledig!
+                if (UnityEngine.AI.NavMesh.SamplePosition(randomPos, out UnityEngine.AI.NavMeshHit hit, fieldRadius, UnityEngine.AI.NavMesh.AllAreas))
                 {
-                    // Skapa kristallen på servern först
-                    GameObject newCrystal = Instantiate(crystalPrefab, spawnPos, Quaternion.Euler(0, Random.Range(0f, 360f), 0));
-                    newCrystal.transform.SetParent(this.transform, true); // Gör den till barn av fältet? (Valfritt)
+                    Vector3 spawnPos = hit.position;
 
-                    // Lägg till i serverns lista
-                    server_spawnedCrystals.Add(newCrystal);
+                    // Kolla om platsen är blockerad med den konfigurerade LayerMasken
+                    // Använd NonAlloc för lite bättre prestanda
+                    Collider[] hitColliders = new Collider[1]; // Behöver bara veta OM den träffar något
+                    int hits = Physics.OverlapSphereNonAlloc(spawnPos, placementCheckRadius, hitColliders, placementBlockingLayers);
 
-                    // *** Spawna objektet på nätverket för alla klienter ***
-                    NetworkServer.Spawn(newCrystal);
-
-                    // Valfritt: Sätt typ/värde på kristallen här om det ska variera?
-                    // HarvestableCrystal crystalScript = newCrystal.GetComponent<HarvestableCrystal>();
-                    // crystalScript.Server_Initialize(CrystalType.Blue, 250); // Kräver metod på kristallen
-
-                    // Debug.Log($"'{gameObject.name}' spawned crystal {newCrystal.GetComponent<NetworkIdentity>().netId} at {spawnPos}. Count: {server_spawnedCrystals.Count}/{maxCrystals}");
-                    return true;
+                    if (hits == 0) // Platsen är ledig från blockerande objekt!
+                    {
+                        GameObject newCrystal = Instantiate(crystalPrefab, spawnPos, Quaternion.Euler(0, Random.Range(0f, 360f), 0));
+                        newCrystal.transform.SetParent(this.transform, true);
+                        server_spawnedCrystals.Add(newCrystal);
+                        NetworkServer.Spawn(newCrystal); // Spawna på nätverket!
+                        return true; // Lyckades!
+                    }
+                    // Platsen var blockerad, loopen fortsätter och försöker hitta en ny slump-position
                 }
-                else { /* Plats blockerad */ }
+                // SamplePosition misslyckades, loopen fortsätter
             }
-            else { /* Hittade ingen giltig NavMesh-position */ }
 
-            return false; // Misslyckades att spawna
+            // Debug.LogWarning($"'{gameObject.name}' failed to find a valid, unblocked spawn position after multiple attempts.");
+            return false; // Misslyckades att hitta en bra position efter flera försök
         }
 
         // --- Gizmos ---
         void OnDrawGizmosSelected()
         {
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawWireSphere(transform.position, fieldRadius);
+            Gizmos.color = new Color(0f, 1f, 1f, 0.3f); // Cyan transparent
+            Gizmos.DrawSphere(transform.position, fieldRadius);
 #if UNITY_EDITOR
-            // Försök visa aktuell spawn count (fungerar bara i Play mode på server/host)
-            string countText = isServer ? $"Count: {server_spawnedCrystals.Count}/{maxCrystals}" : "Count: (Server Only)";
-            UnityEditor.Handles.Label(transform.position + Vector3.up * 0.5f, $"Crystal Field [{countText}]\nRadius: {fieldRadius}\nDelay: {respawnDelay}s\nPrefab: {crystalPrefab?.name ?? "None"}");
-            UnityEditor.Handles.color = Color.cyan;
-            UnityEditor.Handles.DrawWireDisc(transform.position, Vector3.up, fieldRadius);
+            string countText = "Count: N/A (Not Playing)";
+            if (Application.isPlaying)
+            {
+                countText = isServer && server_spawnedCrystals != null ? $"Count: {server_spawnedCrystals.Count}/{maxCrystals}" : "Count: (Client Only)";
+            }
+            string label = $"Crystal Field [{countText}]\nRadius: {fieldRadius}\nMax: {maxCrystals}\nDelay: {respawnDelay}s\nPrefab: {crystalPrefab?.name ?? "NONE"}";
+            Handles.Label(transform.position + Vector3.up * 1.5f, label);
+            Handles.color = Color.cyan;
+            Handles.DrawWireDisc(transform.position, Vector3.up, fieldRadius);
 #endif
         }
     }

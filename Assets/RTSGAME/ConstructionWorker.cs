@@ -16,7 +16,7 @@ namespace RTSGAME
         [Tooltip("Amount of 'health' repaired per second.")]
         [SerializeField] private float repairAmountPerSecond = 20f;
         [Tooltip("Amount of 'progress' added per second when constructing.")]
-        [SerializeField] private float constructionWorkPerSecond = 1;
+        [SerializeField] private float constructionWorkPerSecond = 1f; // <--- Notera f:et för float
 
         // --- State Machine & Target ---
         [SyncVar(hook = nameof(OnStateChangedHook))]
@@ -48,6 +48,7 @@ namespace RTSGAME
         }
 
         // --- Animation Update (Client-side) ---
+        // Denna är nu specifik för Worker och inte en override
         protected virtual void UpdateAnimationWorker(WorkerState oldState, WorkerState newState)
         {
             if (animator == null) return;
@@ -85,7 +86,6 @@ namespace RTSGAME
         [Command]
         public void Cmd_MoveToPosition(Vector3 destination)
         {
-            // Använder IsOwner från Unit-basklassen
             if (!IsOwner(connectionToClient)) { Debug.LogWarning($"Non-owner tried to move worker {netId}"); return; }
             Server_TransitionToState(WorkerState.MovingToPosition, 0);
             movementComponent?.Server_SetDestination(destination);
@@ -156,28 +156,32 @@ namespace RTSGAME
         private void Server_TransitionToState(WorkerState newState, uint targetId)
         {
             WorkerState oldState = currentState;
-            Server_StopCurrentWorkCoroutine();
+            // Stoppa nuvarande jobb och släpp capture om nödvändigt
+            bool shouldReleaseCapture = (oldState == WorkerState.MovingToCapture || oldState == WorkerState.Capturing);
+            Server_StopCurrentWorkCoroutine(shouldReleaseCapture); // Skicka med flagga om capture ska avbrytas
+
             if (newState == WorkerState.Idle || newState == WorkerState.MovingToPosition) { targetId = 0; movementComponent?.Server_StopMovement(); }
 
-            currentState = newState; // Uppdatera state FÖRST
-            currentTargetNetId = targetId; // Uppdatera mål ID
-            currentTargetBuildingCache = null; // Rensa cache
+            currentState = newState;
+            currentTargetNetId = targetId;
+            currentTargetBuildingCache = null;
 
             if (currentTargetNetId != 0)
-            { // Försök fylla cache direkt
-                if (NetworkServer.spawned.TryGetValue(currentTargetNetId, out var identity)) { currentTargetBuildingCache = identity.GetComponent<Building>(); }
-                else { Debug.LogWarning($"Worker {netId} could not find target {currentTargetNetId} on server when transitioning state."); }
+            {
+                if (NetworkServer.spawned.TryGetValue(currentTargetNetId, out var identity)) { currentTargetBuildingCache = identity?.GetComponent<Building>(); } // Lägg till null-check
+                if (currentTargetBuildingCache == null) { Debug.LogWarning($"Worker {netId} could not find/get Building component for target {currentTargetNetId} on state transition."); }
             }
-            if (newState == WorkerState.Idle) { movementComponent?.Server_StopMovement(); } // Stoppa igen för säkerhets skull
+            if (newState == WorkerState.Idle) { movementComponent?.Server_StopMovement(); }
+            // Starta inte FindWork automatiskt för Worker, den får order.
         }
 
         // Överskugga basklassens OnMovementArrival
         [Server]
         public override void OnMovementArrival()
         {
-            Debug.Log($"Worker {netId} arrived at destination. Trying action for state: {currentState}");
+            Debug.Log($"Worker {netId} arrived. State: {currentState}");
             Building targetBuilding = null;
-            if (currentTargetNetId != 0 && NetworkServer.spawned.TryGetValue(currentTargetNetId, out var identity)) { targetBuilding = identity.GetComponent<Building>(); }
+            if (currentTargetNetId != 0 && NetworkServer.spawned.TryGetValue(currentTargetNetId, out var identity)) { targetBuilding = identity?.GetComponent<Building>(); }
 
             if (targetBuilding == null && currentState != WorkerState.MovingToPosition && currentState != WorkerState.Idle)
             {
@@ -191,11 +195,10 @@ namespace RTSGAME
                 case WorkerState.MovingToRepair: HandleArrival_Repair(targetBuilding); break;
                 case WorkerState.MovingToCapture: HandleArrival_Capture(targetBuilding); break;
                 case WorkerState.MovingToPosition: Server_TransitionToState(WorkerState.Idle, 0); break;
-                default: movementComponent?.Server_StopMovement(); break; // Stanna om i annat state
+                default: movementComponent?.Server_StopMovement(); break;
             }
         }
 
-        // Uppdelade ankomsthanterare för tydlighet
         [Server]
         private void HandleArrival_Build(Building targetBuilding)
         {
@@ -219,18 +222,96 @@ namespace RTSGAME
         [Server]
         private void HandleArrival_Capture(Building targetBuilding)
         {
+            // Använd netId här istället för netIdentity
             if (targetBuilding.Server_StartCaptureAttempt(this.netIdentity))
-            {
+            { // Skicka med NetworkIdentity för worker
                 Server_TransitionToState(WorkerState.Capturing, currentTargetNetId);
             }
             else { Debug.LogWarning($"Worker {netId} failed start capture {currentTargetNetId}. Idle."); Server_TransitionToState(WorkerState.Idle, 0); }
         }
 
 
-        [Server] private void Server_StartWorkCoroutine(IEnumerator routine) { Server_StopCurrentWorkCoroutine(); server_workCoroutine = StartCoroutine(routine); }
-        [Server] private void Server_StopCurrentWorkCoroutine() { /* ... som tidigare ... */ }
-        [Server] private IEnumerator ConstructionWorkLoop(Building target) { /* ... som tidigare ... */ yield return null; }
-        [Server] private IEnumerator RepairWorkLoop(Building target) { /* ... som tidigare ... */ yield return null; }
+        [Server]
+        private void Server_StartWorkCoroutine(IEnumerator routine)
+        {
+            Server_StopCurrentWorkCoroutine(false); // Stoppa ev. gammal, släpp inte capture
+            server_workCoroutine = StartCoroutine(routine);
+        }
+
+        // Uppdaterad för att hantera capture cancel vid behov
+        [Server]
+        private void Server_StopCurrentWorkCoroutine(bool cancelCaptureIfNeeded = false)
+        {
+            if (server_workCoroutine != null)
+            {
+                StopCoroutine(server_workCoroutine);
+                server_workCoroutine = null;
+                // Meddela byggnad om vi slutar bygga
+                if (currentState == WorkerState.Building && currentTargetBuildingCache != null)
+                {
+                    currentTargetBuildingCache.Server_RemoveBuilder(netId);
+                }
+                // Repair behöver ingen notifiering
+            }
+            // Om vi ska avbryta capture och är i det statet
+            if (cancelCaptureIfNeeded && currentState == WorkerState.Capturing && currentTargetBuildingCache != null)
+            {
+                // Validera att det är VI som capturear innan vi avbryter
+                if (currentTargetBuildingCache.CapturingWorkerNetId == this.netId)
+                {
+                    currentTargetBuildingCache.Server_CancelCaptureAttempt($"Worker {netId} stopped/got new order");
+                }
+            }
+        }
+
+        // Server Coroutine för bygge (Använder nu variabeln)
+        [Server]
+        private IEnumerator ConstructionWorkLoop(Building target)
+        {
+            if (target == null) { Server_TransitionToState(WorkerState.Idle, 0); server_workCoroutine = null; yield break; }
+            uint targetId = target.netId;
+            Debug.Log($"Worker {netId} starting construction loop on {targetId}");
+            // Se till att vi är assignade (kan behövas om state ändras snabbt)
+            if (!target.Server_AssignBuilder(this.netId)) { Server_TransitionToState(WorkerState.Idle, 0); server_workCoroutine = null; yield break; }
+
+            while (target != null && target.CurrentState == BuildingState.Constructing)
+            {
+                // --- KORRIGERING HÄR ---
+                target.Server_ContributeConstruction(constructionWorkPerSecond * 1.0f); // Använd variabeln!
+                // ----------------------
+                yield return new WaitForSeconds(1.0f);
+
+                if (currentState != WorkerState.Building) { target?.Server_RemoveBuilder(this.netId); server_workCoroutine = null; yield break; }
+                if (target == null) { if (NetworkServer.spawned.TryGetValue(targetId, out var id)) target = id.GetComponent<Building>(); }
+                if (target == null) { Server_TransitionToState(WorkerState.Idle, 0); server_workCoroutine = null; yield break; }
+            }
+            Debug.Log($"Worker {netId} finished construction loop on {targetId}.");
+            if (currentState == WorkerState.Building) { Server_TransitionToState(WorkerState.Idle, 0); } // Gå Idle om klar
+            server_workCoroutine = null;
+        }
+
+        // Server Coroutine för reparation (Använder nu variabeln)
+        [Server]
+        private IEnumerator RepairWorkLoop(Building target)
+        {
+            if (target == null || target.healthComponent == null) { Server_TransitionToState(WorkerState.Idle, 0); server_workCoroutine = null; yield break; }
+            uint targetId = target.netId;
+            Debug.Log($"Worker {netId} starting repair loop on {targetId}");
+            while (target != null && target.CurrentState != BuildingState.Destroyed && target.healthComponent.CurrentHealth < target.healthComponent.MaxHealth)
+            {
+                // Använd variabeln för reparationsmängd
+                target.healthComponent.Server_Repair(repairAmountPerSecond * 1.0f); // Använd variabeln!
+
+                yield return new WaitForSeconds(1.0f);
+
+                if (currentState != WorkerState.Repairing) { server_workCoroutine = null; yield break; }
+                if (target == null) { if (NetworkServer.spawned.TryGetValue(targetId, out var id)) target = id.GetComponent<Building>(); }
+                if (target == null || target.healthComponent == null) { Server_TransitionToState(WorkerState.Idle, 0); server_workCoroutine = null; yield break; }
+            }
+            Debug.Log($"Worker {netId} finished repair loop on {targetId}.");
+            if (currentState == WorkerState.Repairing) { Server_TransitionToState(WorkerState.Idle, 0); }
+            server_workCoroutine = null;
+        }
 
 
         // --- Target RPCs (Called By Server/Building, Run on Owning Client) ---
@@ -242,8 +323,8 @@ namespace RTSGAME
 
 
         // --- Client-Side Helper Methods ---
-        private IEnumerator FindTargetBuildingLocally(uint targetNetId) { /* ... som tidigare ... */ yield return null; }
-        private void GoToIdleStateLocally(string reason) { /* ... som tidigare ... */ }
+        private IEnumerator FindTargetBuildingLocally(uint targetNetId) { if (targetNetId == 0) yield break; if (NetworkClient.spawned.TryGetValue(targetNetId, out NetworkIdentity identity)) { currentTargetBuildingCache = identity?.GetComponent<Building>(); if (currentTargetBuildingCache != null) yield break; } float timeout = Time.time + 5f; while (Time.time < timeout && currentTargetBuildingCache == null) { if (NetworkClient.spawned.TryGetValue(targetNetId, out identity)) { currentTargetBuildingCache = identity?.GetComponent<Building>(); } if (currentTargetBuildingCache == null) yield return null; } }
+        private void GoToIdleStateLocally(string reason) { currentTargetBuildingCache = null; /* Animation via hook */ }
 
-    }
-}
+    } // End class ConstructionWorker
+} // End namespace RTSGAME

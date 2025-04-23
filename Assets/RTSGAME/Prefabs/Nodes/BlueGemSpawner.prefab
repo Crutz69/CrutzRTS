@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 4237153338122153712}
   - component: {fileID: 4232828276231448626}
   - component: {fileID: -9011469295087159984}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: BlueGemSpawner
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -130,6 +130,10 @@ MonoBehaviour:
   respawnDelay: 5
   crystalPrefab: {fileID: 1401144904298198502, guid: a702da744dcb4bf4083bc3bfe045f1af, type: 3}
   initialSpawnCount: 250
+  placementCheckRadius: 1
+  placementBlockingLayers:
+    serializedVersion: 2
+    m_Bits: 1544
 --- !u!114 &-9011469295087159984
 MonoBehaviour:
   m_ObjectHideFlags: 0

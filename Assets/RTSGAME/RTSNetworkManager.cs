@@ -91,25 +91,35 @@ namespace RTSGAME
 
             NetworkPlayer player = conn.identity?.GetComponent<NetworkPlayer>();
             uint playerNetId = player != null ? player.netId : 0;
-            Transform usedSpawnPoint = player?.transform; // Spelarobjektets position är spawn point? Eller behöver vi lagra separat?
 
-            // Avregistrera från managers
+            // ---- ADD NULL CHECKS HERE ----
+            // Unregister from managers ONLY if the instance still exists
             if (playerNetId != 0)
             {
-                PlayerManager.Instance?.Server_UnregisterPlayer(playerNetId);
-                ResourceManager.Instance?.Server_UnregisterPlayer(playerNetId);
-            }
+                if (PlayerManager.Instance != null) // Check if PlayerManager exists
+                {
+                    PlayerManager.Instance.Server_UnregisterPlayer(playerNetId);
+                }
+                else { Debug.LogWarning("PlayerManager.Instance was null during OnServerDisconnect cleanup."); }
 
-            // Lägg tillbaka spawn point i poolen om den hittas
+                if (ResourceManager.Instance != null) // Check if ResourceManager exists
+                {
+                    ResourceManager.Instance.Server_UnregisterPlayer(playerNetId);
+                }
+                else { Debug.LogWarning("ResourceManager.Instance was null during OnServerDisconnect cleanup."); }
+            }
+            // ---- END NULL CHECKS ----
+
+            // Add spawn point back to pool logic...
+            Transform usedSpawnPoint = player?.transform;
             if (usedSpawnPoint != null && allSpawnPoints.Contains(usedSpawnPoint) && !availableSpawnPoints.Contains(usedSpawnPoint))
             {
                 availableSpawnPoints.Add(usedSpawnPoint);
                 Debug.Log($"Added spawn point {usedSpawnPoint.name} back to available list.");
-                // Blanda om igen om random?
                 // Shuffle(availableSpawnPoints);
             }
 
-
+            // Handle cleanup/AI based on setting...
             if (replaceWithAI)
             {
                 Debug.LogWarning($"AI Replacement requested for player {playerNetId}, but AI is not implemented. Cleaning up player units instead.");
@@ -121,7 +131,7 @@ namespace RTSGAME
                 Server_CleanupDisconnectedPlayer(conn, playerNetId);
             }
 
-            // Anropa base sist
+            // Call base function LAST
             base.OnServerDisconnect(conn);
         }
 
@@ -131,9 +141,14 @@ namespace RTSGAME
         [Server]
         private void PrepareSpawnPoints()
         {
-            allSpawnPoints = FindObjectsOfType<SpawnPointMarker>()
-                                     .Select(marker => marker.transform)
-                                     .ToList();
+            // allSpawnPoints = FindObjectsOfType<SpawnPointMarker>()
+            //                         .Select(marker => marker.transform)
+            //                        .ToList();
+            allSpawnPoints = FindObjectsByType<SpawnPointMarker>(FindObjectsSortMode.None) // <-- Byt till denna
+                            .Select(marker => marker.transform)
+                            .ToList();
+
+
             // Skapa en kopia som vi kan ta bort ifrån
             availableSpawnPoints = new List<Transform>(allSpawnPoints);
 

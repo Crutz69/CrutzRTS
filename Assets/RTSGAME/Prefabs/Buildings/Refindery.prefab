@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8918209890127370935}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: GameObject (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -53,7 +53,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6362192165770172689}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: GameObject (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -99,7 +99,9 @@ GameObject:
   - component: {fileID: 965312625914316557}
   - component: {fileID: 3139640488961518169}
   - component: {fileID: 1730919246138810675}
-  m_Layer: 0
+  - component: {fileID: 3337864696302340699}
+  - component: {fileID: 372282709487706416}
+  m_Layer: 9
   m_Name: Refindery
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -171,6 +173,102 @@ MonoBehaviour:
   serverOnly: 0
   visibility: 0
   hasSpawned: 0
+--- !u!114 &3337864696302340699
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6439802367785322238}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9c47795197dbaa4baf9cf3957c1bcd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  maxHealth: 100
+  OnServerDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDamaged:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &372282709487706416
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6439802367785322238}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e0029e6c677bb59458c4ce7f8910d416, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  buildingName: Refindery
+  originalFactionID: 0
+  costCredits: 2500
+  manaUpkeep: 0
+  manaGeneration: 0
+  sellReturnPercentage: 0.5
+  requiredTier: 1
+  armorType: 4
+  constructionDuration: 10
+  maxConcurrentBuilders: 1
+  captureDuration: 10
+  visionRadius: 15
+  healthComponent: {fileID: 3337864696302340699}
+  healthBarSlider: {fileID: 0}
+  selectionIndicator: {fileID: 0}
+  progressBarSlider: {fileID: 0}
+  rallyPointVisualPrefab: {fileID: 6439802367785322238}
+  rallyPointLineRenderer: {fileID: 0}
+  OnBuildingPlaced_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionStart_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionProgress_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionComplete_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnSold_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnPowerStateChanged_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnSelected_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnDeselected_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnRallyPointSet_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureStart_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureComplete_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureCancel_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  unloadDuration: 2
+  dockingPoint: {fileID: 0}
 --- !u!1 &8250111811753444124
 GameObject:
   m_ObjectHideFlags: 0
@@ -180,7 +278,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 754304967008336249}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: GameObject (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -226,6 +324,10 @@ PrefabInstance:
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_Name
       value: Crystal_44
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -292,6 +394,10 @@ PrefabInstance:
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_Name
       value: Crystal_44 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -372,6 +478,10 @@ PrefabInstance:
       value: SM_Bld_House_FoundationRock_01
       objectReference: {fileID: 0}
     - target: {fileID: 192068, guid: 2cbe4111caaa52243a97077dfc33593c, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 192068, guid: 2cbe4111caaa52243a97077dfc33593c, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -438,6 +548,10 @@ PrefabInstance:
       value: Crystal_16
       objectReference: {fileID: 0}
     - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -502,6 +616,10 @@ PrefabInstance:
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_Name
       value: Crystal_44 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -582,6 +700,10 @@ PrefabInstance:
       value: Crystal_42
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -648,6 +770,10 @@ PrefabInstance:
       value: Crystal_31
       objectReference: {fileID: 0}
     - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -712,6 +838,10 @@ PrefabInstance:
     - target: {fileID: 108878, guid: a1d89dfa5be4ffa4395c55529be0064f, type: 3}
       propertyPath: m_Name
       value: SM_Bld_House_Foundation_Beams_01
+      objectReference: {fileID: 0}
+    - target: {fileID: 108878, guid: a1d89dfa5be4ffa4395c55529be0064f, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 108878, guid: a1d89dfa5be4ffa4395c55529be0064f, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -786,6 +916,10 @@ PrefabInstance:
     - target: {fileID: 123248, guid: f028244a47462e3449e09903dedd7955, type: 3}
       propertyPath: m_Name
       value: SM_Prop_Crate_01 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 123248, guid: f028244a47462e3449e09903dedd7955, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 123248, guid: f028244a47462e3449e09903dedd7955, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -894,6 +1028,10 @@ PrefabInstance:
       value: Crystal_14
       objectReference: {fileID: 0}
     - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -918,6 +1056,10 @@ PrefabInstance:
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_Name
       value: Crystal_19
+      objectReference: {fileID: 0}
+    - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -984,6 +1126,10 @@ PrefabInstance:
     - target: {fileID: 161898, guid: af056f47e8a2c444ea2536d3bc4303ab, type: 3}
       propertyPath: m_Name
       value: SM_Bld_House_TopRoomSmall_01
+      objectReference: {fileID: 0}
+    - target: {fileID: 161898, guid: af056f47e8a2c444ea2536d3bc4303ab, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 161898, guid: af056f47e8a2c444ea2536d3bc4303ab, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1060,6 +1206,10 @@ PrefabInstance:
       value: Crystal_44
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1124,6 +1274,10 @@ PrefabInstance:
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_Name
       value: Crystal_38
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1192,6 +1346,10 @@ PrefabInstance:
       value: Crystal_13
       objectReference: {fileID: 0}
     - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1256,6 +1414,10 @@ PrefabInstance:
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_Name
       value: Crystal_47
+      objectReference: {fileID: 0}
+    - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1324,6 +1486,10 @@ PrefabInstance:
       value: Crystal_42
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1388,6 +1554,10 @@ PrefabInstance:
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_Name
       value: Crystal_38
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1456,6 +1626,10 @@ PrefabInstance:
       value: Crystal_16
       objectReference: {fileID: 0}
     - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1520,6 +1694,10 @@ PrefabInstance:
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_Name
       value: Crystal_44 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1600,6 +1778,10 @@ PrefabInstance:
       value: Crystal_42
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1666,6 +1848,10 @@ PrefabInstance:
       value: Crystal_38 (1)
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1730,6 +1916,10 @@ PrefabInstance:
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_Name
       value: Crystal_42 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -1810,6 +2000,10 @@ PrefabInstance:
       value: SM_Bld_House_Tower_01
       objectReference: {fileID: 0}
     - target: {fileID: 141876, guid: 141aa4408d61bc244a29ea886cc08ae3, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 141876, guid: 141aa4408d61bc244a29ea886cc08ae3, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1880,6 +2074,10 @@ PrefabInstance:
       value: SM_Prop_Cart_01
       objectReference: {fileID: 0}
     - target: {fileID: 111980, guid: fd3d2a7dec61bb842a89089e1d1e6764, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 111980, guid: fd3d2a7dec61bb842a89089e1d1e6764, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -1944,6 +2142,10 @@ PrefabInstance:
     - target: {fileID: 144612, guid: 00e3039b1aaf0ee4abe6529e9dfd71bc, type: 3}
       propertyPath: m_Name
       value: SM_Bld_House_Door_04
+      objectReference: {fileID: 0}
+    - target: {fileID: 144612, guid: 00e3039b1aaf0ee4abe6529e9dfd71bc, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 144612, guid: 00e3039b1aaf0ee4abe6529e9dfd71bc, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2012,6 +2214,10 @@ PrefabInstance:
       value: Crystal_38 (1)
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2076,6 +2282,10 @@ PrefabInstance:
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_Name
       value: Crystal_47
+      objectReference: {fileID: 0}
+    - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2144,6 +2354,10 @@ PrefabInstance:
       value: Crystal_13
       objectReference: {fileID: 0}
     - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2208,6 +2422,10 @@ PrefabInstance:
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_Name
       value: Crystal_19
+      objectReference: {fileID: 0}
+    - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2276,6 +2494,10 @@ PrefabInstance:
       value: Crystal_6
       objectReference: {fileID: 0}
     - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2340,6 +2562,10 @@ PrefabInstance:
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_Name
       value: Crystal_47
+      objectReference: {fileID: 0}
+    - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 32483502853099280, guid: cb965b17355993648947b94d6835ca79, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2408,6 +2634,10 @@ PrefabInstance:
       value: Crystal_6
       objectReference: {fileID: 0}
     - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2474,6 +2704,10 @@ PrefabInstance:
       value: Crystal_38 (1)
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2538,6 +2772,10 @@ PrefabInstance:
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_Name
       value: Crystal_42 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2618,6 +2856,10 @@ PrefabInstance:
       value: Crystal_38
       objectReference: {fileID: 0}
     - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 1620180738990323308, guid: 09f49c9753dfe1b47b495ad2eee96185, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2682,6 +2924,10 @@ PrefabInstance:
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_Name
       value: Crystal_42 (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 2510295528469998385, guid: 952e7610e03d56e488851893359c8b00, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2802,6 +3048,10 @@ PrefabInstance:
       value: Crystal_14
       objectReference: {fileID: 0}
     - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2826,6 +3076,10 @@ PrefabInstance:
     - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
       propertyPath: m_Name
       value: Crystal_31
+      objectReference: {fileID: 0}
+    - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -2934,6 +3188,10 @@ PrefabInstance:
       value: Crystal_14
       objectReference: {fileID: 0}
     - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 9172867280648782409, guid: 7acb8175d26ce114bb5e0babcb395ca1, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -2958,6 +3216,10 @@ PrefabInstance:
     - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
       propertyPath: m_Name
       value: Crystal_31
+      objectReference: {fileID: 0}
+    - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 387144216491021895, guid: c2459ca60d350e242a60fb679ea53509, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -3026,6 +3288,10 @@ PrefabInstance:
       value: Crystal_6
       objectReference: {fileID: 0}
     - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 4611706012883342236, guid: ed657c6abbba970418e56af2fbea088e, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -3090,6 +3356,10 @@ PrefabInstance:
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_Name
       value: Crystal_19
+      objectReference: {fileID: 0}
+    - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 7194363452201991242, guid: 3f8637e01e8e84041aedc329b9f7b2f0, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -3158,6 +3428,10 @@ PrefabInstance:
       value: Crystal_16
       objectReference: {fileID: 0}
     - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 2448881000423981641, guid: cc47197842dae7e44bc3b034d820d6a0, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -3222,6 +3496,10 @@ PrefabInstance:
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_Name
       value: Crystal_44
+      objectReference: {fileID: 0}
+    - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 8320034790009172570, guid: 1d6213c171d778f408fb26f78fa79cfa, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -3290,6 +3568,10 @@ PrefabInstance:
       value: SM_Prop_Crate_01
       objectReference: {fileID: 0}
     - target: {fileID: 123248, guid: f028244a47462e3449e09903dedd7955, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 123248, guid: f028244a47462e3449e09903dedd7955, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -3354,6 +3636,10 @@ PrefabInstance:
     - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
       propertyPath: m_Name
       value: Crystal_13
+      objectReference: {fileID: 0}
+    - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 5854428288416499027, guid: 030bb9c4d8d12734eb909bfb6b3a36a9, type: 3}
       propertyPath: m_StaticEditorFlags

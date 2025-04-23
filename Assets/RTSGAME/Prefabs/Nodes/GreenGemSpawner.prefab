@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 8915487852947053383}
   - component: {fileID: 6150772667148646594}
   - component: {fileID: -376472521358394106}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: GreenGemSpawner
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -147,3 +147,7 @@ MonoBehaviour:
   respawnDelay: 5
   crystalPrefab: {fileID: 5394010860288263795, guid: 69423e73c321e294a8f708a9f5e88fe0, type: 3}
   initialSpawnCount: 250
+  placementCheckRadius: 1
+  placementBlockingLayers:
+    serializedVersion: 2
+    m_Bits: 1544

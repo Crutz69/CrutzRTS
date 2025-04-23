@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 6662673676459414152}
   - component: {fileID: -958794306258333103}
   - component: {fileID: 5916861864248541594}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: RedGemSpawner
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -147,3 +147,7 @@ MonoBehaviour:
   respawnDelay: 5
   crystalPrefab: {fileID: 5132852736597329810, guid: a69e54fcd2007c349bb8cb17b4d90955, type: 3}
   initialSpawnCount: 250
+  placementCheckRadius: 1
+  placementBlockingLayers:
+    serializedVersion: 2
+    m_Bits: 1544

@@ -1,5 +1,36 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1444579058193629494
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8022956274630220188}
+  m_Layer: 9
+  m_Name: SpawnPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8022956274630220188
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1444579058193629494}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -6.22}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2359108185655835429}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5220835803963366794
 GameObject:
   m_ObjectHideFlags: 0
@@ -11,7 +42,9 @@ GameObject:
   - component: {fileID: 2359108185655835429}
   - component: {fileID: 4121413302978864625}
   - component: {fileID: 8647067426822378935}
-  m_Layer: 0
+  - component: {fileID: -2319890666285455261}
+  - component: {fileID: 7486727949726683038}
+  m_Layer: 9
   m_Name: TownHall
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -26,11 +59,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5220835803963366794}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.36157003, z: -0, w: 0.932345}
-  m_LocalPosition: {x: 31.66, y: 0, z: -32.87}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 8022956274630220188}
   - {fileID: 451972287160740279}
   - {fileID: 2860877608334929296}
   - {fileID: 6708084359784661057}
@@ -45,7 +79,7 @@ Transform:
   - {fileID: 1689477033790522463}
   - {fileID: 864312004090870052}
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 42.393, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!64 &4121413302978864625
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -85,6 +119,103 @@ MonoBehaviour:
   serverOnly: 0
   visibility: 0
   hasSpawned: 0
+--- !u!114 &-2319890666285455261
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5220835803963366794}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9c47795197dbaa4baf9cf3957c1bcd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  maxHealth: 100
+  OnServerDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDied:
+    m_PersistentCalls:
+      m_Calls: []
+  OnClientDamaged:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &7486727949726683038
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5220835803963366794}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 073c70a8528cce34ca1034f55ce38ec9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0
+  buildingName: Townhall
+  originalFactionID: 0
+  costCredits: 2500
+  manaUpkeep: 0
+  manaGeneration: 0
+  sellReturnPercentage: 0.5
+  requiredTier: 1
+  armorType: 4
+  constructionDuration: 10
+  maxConcurrentBuilders: 1
+  captureDuration: 10
+  visionRadius: 15
+  healthComponent: {fileID: 0}
+  healthBarSlider: {fileID: 0}
+  selectionIndicator: {fileID: 0}
+  progressBarSlider: {fileID: 0}
+  rallyPointVisualPrefab: {fileID: 0}
+  rallyPointLineRenderer: {fileID: 0}
+  OnBuildingPlaced_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionStart_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionProgress_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnConstructionComplete_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnSold_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnPowerStateChanged_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnSelected_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnDeselected_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnRallyPointSet_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureStart_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureComplete_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  OnCaptureCancel_Local:
+    m_PersistentCalls:
+      m_Calls: []
+  maxTier: 3
+  workerPrefab: {fileID: 0}
+  spawnPoint: {fileID: 0}
 --- !u!1001 &451972287161116633
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -96,6 +227,10 @@ PrefabInstance:
     - target: {fileID: 141314, guid: a342473935e669649a9be973cda516c1, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Wall_Gate_01
+      objectReference: {fileID: 0}
+    - target: {fileID: 141314, guid: a342473935e669649a9be973cda516c1, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 141314, guid: a342473935e669649a9be973cda516c1, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -164,6 +299,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Wall_01_Lite
       objectReference: {fileID: 0}
     - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -228,6 +367,10 @@ PrefabInstance:
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Tower_01_Lite (3)
+      objectReference: {fileID: 0}
+    - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -296,6 +439,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Wall_01_Lite (2)
       objectReference: {fileID: 0}
     - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -360,6 +507,10 @@ PrefabInstance:
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Tower_01_Lite (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -428,6 +579,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Iron_Gate_01
       objectReference: {fileID: 0}
     - target: {fileID: 169488, guid: 0a5ef1aaf47f03547983772b8f1f3a80, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 169488, guid: 0a5ef1aaf47f03547983772b8f1f3a80, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -492,6 +647,10 @@ PrefabInstance:
     - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Wall_01_Lite (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 105826, guid: 56e3c741d680c6948adde1a3f33e3e47, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -560,6 +719,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Tower_01_Lite
       objectReference: {fileID: 0}
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -624,6 +787,10 @@ PrefabInstance:
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Tower_Top_01_Lite (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -692,6 +859,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Tower_01_Lite (2)
       objectReference: {fileID: 0}
     - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 109282, guid: cd46f6361746af34ca29dec77bee51a2, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -756,6 +927,10 @@ PrefabInstance:
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Tower_Top_01_Lite
+      objectReference: {fileID: 0}
+    - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_StaticEditorFlags
@@ -824,6 +999,10 @@ PrefabInstance:
       value: SM_Bld_Castle_Tower_Top_01_Lite (3)
       objectReference: {fileID: 0}
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_StaticEditorFlags
       value: 2147483647
       objectReference: {fileID: 0}
@@ -888,6 +1067,10 @@ PrefabInstance:
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_Name
       value: SM_Bld_Castle_Tower_Top_01_Lite (2)
+      objectReference: {fileID: 0}
+    - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 112246, guid: d43900a9d4c0e224eaf62e1d618dd64a, type: 3}
       propertyPath: m_StaticEditorFlags
