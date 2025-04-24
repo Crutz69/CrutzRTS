@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e6c1476cfaaf0547b768c03c479bcd2, type: 3}
+  m_Name: TownhallBuildingData
+  m_EditorClassIdentifier: 
+  buildableName: Townhall
+  buildableId: building_townhall
+  itemType: 1
+  category: 1
+  icon: {fileID: 21300000, guid: ea354b0cd9763594fa2483fcb8c2da74, type: 3}
+  creditCost: 3500
+  buildTime: 25
+  prefabToBuild: {fileID: 5220835803963366794, guid: f7b33b32c338ed54fa4d87a6a1decf7a, type: 3}
+  ghostPrefab: {fileID: 5220835803963366794, guid: f7b33b32c338ed54fa4d87a6a1decf7a, type: 3}
+  isUnlockedInitially: 1
+  queueBatchAmount: 1

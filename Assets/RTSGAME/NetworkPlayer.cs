@@ -6,7 +6,8 @@ using System.Linq; // För .Select() i exempel
 
 namespace RTSGAME
 {
-    public enum PlayerStatus { Playing, Defeated, Spectating }
+    // Flyttad till Enums.cs? Om inte, definiera den här eller där den används.
+    // public enum PlayerStatus { Playing, Defeated, Spectating }
 
     public class NetworkPlayer : NetworkBehaviour
     {
@@ -15,13 +16,19 @@ namespace RTSGAME
         [SyncVar(hook = nameof(OnTeamIDChanged))] public int teamID = 0;
         [SyncVar(hook = nameof(OnColorChanged))] public Color playerColor = Color.grey;
 
-        [Header("Resources")]
-        [SyncVar(hook = nameof(OnCreditsChanged))] public int credits = 1000; // Startvärde, sätts av servern egentligen
-        [SyncVar(hook = nameof(OnManaChanged))] public int mana = 100;
-        [SyncVar(hook = nameof(OnMaxManaChanged))] public int maxMana = 100;
-        // OBS: Att ha resurser som SyncVars här kan vara OK för enklare fall, men för komplexa spel
-        // är det ofta säkrare att ResourceManager på servern håller de auktoritativa värdena
-        // och detta script bara tar emot uppdateringar för UI-visning.
+        [Header("Resources (Synced from ResourceManager)")]
+        [SyncVar(hook = nameof(OnCreditsChanged))] public int credits = 0; // Startvärde sätts via ResourceManager->RegisterPlayer
+        // Mana-poolen kanske du vill behålla som buffert eller för andra system?
+        // [SyncVar(hook = nameof(OnManaChanged))] public int mana = 0;
+        // [SyncVar(hook = nameof(OnMaxManaChanged))] public int maxMana = 0;
+
+        // NYTT: SyncVars för Mana Upkeep / Power System
+        [Tooltip("Total Mana genererad per sekund/tick för denna spelare.")]
+        [SyncVar(hook = nameof(OnManaGenerationChanged))] public int manaGeneration;
+        [Tooltip("Total Mana upkeep per sekund/tick för denna spelare.")]
+        [SyncVar(hook = nameof(OnManaUpkeepChanged))] public int manaUpkeep;
+        [Tooltip("Har spelaren tillräckligt med Mana Generation för sin Upkeep?")]
+        [SyncVar(hook = nameof(OnPowerStatusChanged))] public bool hasSufficientPower = true; // Startvärde
 
         [Header("Status")]
         [SyncVar(hook = nameof(OnStatusChanged))] public PlayerStatus status = PlayerStatus.Playing;
@@ -29,51 +36,54 @@ namespace RTSGAME
         // Referenser till lokala system (sätts i OnStartLocalPlayer)
         private InputManager inputManager;
         private SelectionManager selectionManager;
-        private UIManager uiManager;
-        // private CameraController cameraController; // Om kameran styrs härifrån
+        private UIManager uiManager; // Antag att UIManager är en Singleton eller lättåtkomlig
+        private ManaBarController manaBarController; // Specifik controller för mana-baren?
 
         // --- Mirror Callbacks ---
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-            // Servern kan sätta initiala värden här om de inte sätts från lobbyn/GameManager
-            // Ex: credits = GameSettings.startCredits;
-
-            // Registrera spelaren hos PlayerManager på servern
-            // PlayerManager.Instance?.Server_RegisterPlayer(this); // Skicka med NetworkPlayer-instansen
-            Debug.Log($"Player {playerName} (NetId: {netId}) connected to server.");
+            // Servern registrerar spelaren hos ResourceManager när spelaren ansluter helt
+            // Detta görs ofta via NetworkManager.OnServerAddPlayer -> Player spawn -> Register
+            if (ResourceManager.Instance != null)
+            {
+                // TODO: Hämta korrekta startvärden från t.ex. GameSettings eller LobbyData
+                int startCredits = 1000;
+                // int startMana = 100;
+                // int startMaxMana = 100;
+                ResourceManager.Instance.Server_RegisterPlayer(netId, startCredits /*, startMana, startMaxMana*/);
+            }
+            else
+            {
+                Debug.LogError($"ResourceManager Instance not found on server when registering player {netId}!");
+            }
+            Debug.Log($"Player {playerName} (NetId: {netId}) initialized on server.");
         }
 
         public override void OnStopServer()
         {
+            // Avregistrera från ResourceManager när spelaren lämnar
+            ResourceManager.Instance?.Server_UnregisterPlayer(netId);
+            Debug.Log($"Player {playerName} (NetId: {netId}) stopped on server.");
             base.OnStopServer();
-            // Avregistrera från PlayerManager
-            // PlayerManager.Instance?.Server_UnregisterPlayer(netId);
-            Debug.Log($"Player {playerName} (NetId: {netId}) disconnected from server.");
         }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
-            // Alla klienter (inklusive host) registrerar spelaren lokalt för enkel åtkomst?
-            // PlayerManager.Instance?.Client_RegisterPlayer(this); // Kan behöva separat lista för klienter
             Debug.Log($"Player {playerName} (NetId: {netId}, Team {teamID}) loaded on client.");
-            // Uppdatera UI etc baserat på initiala SyncVar-värden via hooks
+            // Initial UI-uppdatering triggas av SyncVar Hooks när värdena synkas från servern
         }
 
         public override void OnStopClient()
         {
             base.OnStopClient();
-            // Avregistrera från lokal PlayerManager-lista
-            // PlayerManager.Instance?.Client_UnregisterPlayer(netId);
             Debug.Log($"Player {playerName} (NetId: {netId}) removed from client.");
-            // Om den lokala spelaren lämnar, ladda meny-scenen?
             if (isLocalPlayer)
             {
                 Debug.Log("Local player disconnected.");
                 // Ladda meny scen...
-                // NetworkManager.singleton.StopClient(); // Eller StopHost
             }
         }
 
@@ -83,401 +93,232 @@ namespace RTSGAME
             gameObject.name = $"LOCAL Player - {playerName} ({netId})";
             Debug.Log($"OnStartLocalPlayer: {playerName} (Team {teamID}, Color {playerColor})");
 
-            // Hitta managers via deras Singleton Instance
+            // Hitta managers
             inputManager = InputManager.Instance;
-            selectionManager = SelectionManager.Instance; // Kan behövas för att läsa av val senare
-            uiManager = UIManager.Instance;
-            // cameraController = CameraController.Instance;
+            selectionManager = SelectionManager.Instance;
+            uiManager = UIManager.Instance; // Antag att denna hanterar Credits etc.
+            manaBarController = FindObjectOfType<ManaBarController>(); // Hitta ManaBarController specifikt?
 
-            // Kontrollera att managers hittades och registrera denna NetworkPlayer
-            if (inputManager != null)
-            {
-                inputManager.AssignLocalPlayer(this); // Ge InputManager referensen!
-            }
-            else { Debug.LogError("NetworkPlayer could not find InputManager Instance!"); }
-
-            if (uiManager != null)
-            {
-                uiManager.SetLocalPlayer(this); // Ge UIManager referensen!
-                                                // Uppdatera UI initialt (detta kan ligga kvar eller flyttas till UIManager.SetLocalPlayer)
-                OnCreditsChanged(0, credits);
-                OnManaChanged(0, mana);
-                OnMaxManaChanged(0, maxMana);
-                OnPlayerNameChanged("", playerName);
-                OnTeamIDChanged(0, teamID);
-                OnColorChanged(Color.clear, playerColor);
-                OnStatusChanged(PlayerStatus.Spectating, status);
-            }
-            else { Debug.LogError("NetworkPlayer could not find UIManager Instance!"); }
-
+            if (inputManager != null) inputManager.AssignLocalPlayer(this); else Debug.LogError("NetworkPlayer could not find InputManager Instance!");
+            if (uiManager != null) uiManager.SetLocalPlayer(this); else Debug.LogError("NetworkPlayer could not find UIManager Instance!");
             if (selectionManager == null) Debug.LogError("NetworkPlayer could not find SelectionManager Instance!");
-            // SelectionManager behöver oftast ingen direkt referens TILL NetworkPlayer.
+            if (manaBarController == null) Debug.LogWarning("NetworkPlayer could not find ManaBarController Instance!"); // Varning, kanske OK om mana bar inte finns i alla scener
+
+            // Tvinga en initial uppdatering av UI via hooks, ifall värdena redan är satta
+            OnCreditsChanged(0, credits);
+            OnManaGenerationChanged(0, manaGeneration);
+            OnManaUpkeepChanged(0, manaUpkeep);
+            OnPowerStatusChanged(true, hasSufficientPower);
+            OnPlayerNameChanged("", playerName);
+            OnTeamIDChanged(0, teamID);
+            OnColorChanged(Color.clear, playerColor);
+            OnStatusChanged(PlayerStatus.Spectating, status); // Använd ett start-state
         }
 
-        // --- Input Handling (Conceptual - Anropas från InputManager) ---
+        // --- Input Handling (Conceptual - Anropas från InputManager / UI-knappar) ---
 
-        // Denna metod anropas av InputManager när spelaren ger en bygg-order
-        public void ProcessBuildRequest(int buildingTypeId, Vector3 position, Quaternion rotation)
-        {
-            if (!isLocalPlayer) return; // Säkerhetscheck
-            Debug.Log($"Local player wants to build {buildingTypeId} at {position}");
-            CmdRequestBuild(buildingTypeId, position, rotation); // Skicka till servern
-        }
-
-        // Anropas av InputManager när spelaren ger en flytt-order
-        public void ProcessMoveRequest(Vector3 destination)
-        {
-            if (!isLocalPlayer || selectionManager == null) return;
-            List<NetworkIdentity> selectedUnits = selectionManager.GetSelectedUnitsNetworkIdentities(); // Antag metod finns
-            if (selectedUnits.Count > 0)
-            {
-                List<uint> selectedUnitNetIds = selectedUnits.Select(unit => unit.netId).ToList();
-                CmdMoveUnits(selectedUnitNetIds, destination);
-            }
-        }
-
-        // Anropas av InputManager när spelaren ger en attack-order
-        public void ProcessAttackRequest(NetworkIdentity targetIdentity)
-        {
-            if (!isLocalPlayer || selectionManager == null || targetIdentity == null) return;
-            List<NetworkIdentity> selectedUnits = selectionManager.GetSelectedUnitsNetworkIdentities();
-            if (selectedUnits.Count > 0)
-            {
-                List<uint> attackerNetIds = selectedUnits.Select(unit => unit.netId).ToList();
-                CmdAttackTarget(attackerNetIds, targetIdentity);
-            }
-        }
-
-        // Anropas av InputManager när spelaren ger en Rally Point-order
-        public void ProcessSetRallyPointRequest(Vector3 position)
-        {
-            if (!isLocalPlayer || selectionManager == null) return;
-            // Antag att vi sätter rally point för första valda byggnaden
-            GameObject firstSelected = selectionManager.GetFirstSelectedObject();
-            if (firstSelected != null && firstSelected.TryGetComponent<Building>(out Building building))
-            {
-                if (building.TryGetComponent<NetworkIdentity>(out var buildingId))
-                { // Hämta NetworkIdentity
-                    CmdSetRallyPoint(buildingId, position); // Skicka NetworkIdentity
-                }
-            }
-        }
-
-        // Anropas av InputManager när spelaren ger en Capture-order
-        public void ProcessCaptureRequest(NetworkIdentity workerIdentity, NetworkIdentity targetBuildingIdentity)
-        {
-            if (!isLocalPlayer || workerIdentity == null || targetBuildingIdentity == null) return;
-            // Validera att spelaren äger arbetaren? Kan göras i Command.
-            CmdStartCapture(workerIdentity, targetBuildingIdentity);
-        }
-
-        // Anropas av InputManager när spelaren vill köa en enhet
-        public void ProcessQueueUnitRequest(NetworkIdentity buildingIdentity, int unitTypeId)
-        {
-            if (!isLocalPlayer || buildingIdentity == null) return;
-            CmdQueueUnit(buildingIdentity, unitTypeId);
-        }
+        // Process-metoderna kan tas bort om UI/InputManager anropar Commands direkt
+        // public void ProcessPlaceBuildingRequest(...) { CmdPlaceBuilding(...); }
+        // public void ProcessQueueItemRequest(...) { CmdQueueItem(...); }
+        // public void ProcessRightClickBuild(...) { CmdHandleRightClickBuild(...); }
 
 
         // --- Commands (Called from Client, Run on Server) ---
 
+        // ÄNDRAD: Bytt namn, tar buildableId (string), skapar ConstructionSite
         [Command]
-        void CmdRequestBuild(int buildingTypeId, Vector3 position, Quaternion rotation)
+        public void CmdPlaceBuilding(string buildableId, Vector3 position, Quaternion rotation)
         {
-            Debug.Log($"Server received build request for {buildingTypeId} from player {netId}");
-            // TODO: Server-side logic:
-            // 1. Hämta prefab baserat på buildingTypeId.
-            // 2. Hämta kostnad från prefab/data.
-            // 3. Kolla om spelaren (this) har råd via ResourceManager.Instance.Server_TrySpendCredits(this.netId, cost).
-            // 4. Validera position.
-            // 5. Om allt ok: Dra resurser (redan gjort i TrySpendCredits).
-            // 6. Skapa byggnads-ghost: GameObject ghost = Instantiate(buildingPrefab, position, rotation);
-            // 7. Hämta Building-scriptet.
-            // 8. Initialisera på servern: buildingScript.Server_InitializeBuilding(this.netId, this.teamID, BuildingState.Placing); // Eller hämta factionID
-            // 9. Spawna på nätverket: NetworkServer.Spawn(ghost, connectionToClient); // Ge ägarskap till spelaren
-        }
+            Debug.Log($"Server received place request for {buildableId} from player {netId}");
+            if (ResourceManager.Instance == null) { Debug.LogError("ResourceManager missing on server!"); return; }
 
-        [Command]
-        void CmdMoveUnits(List<uint> unitNetIds, Vector3 destination)
-        {
-            Debug.Log($"Server received move request for {unitNetIds.Count} units from player {netId}");
-            foreach (uint unitNetId in unitNetIds)
+            BuildableData data = ResourceManager.Instance.GetBuildableDataById(buildableId); // Använd ResourceManager för att hitta data
+            if (data == null || data.itemType != BuildableItemType.Building)
             {
-                if (NetworkServer.spawned.TryGetValue(unitNetId, out NetworkIdentity unitIdentity))
-                {
-                    // Validera ägarskap!
-                    if (unitIdentity.connectionToClient == connectionToClient)
-                    {
-                        // TODO: Anropa rörelsekomponenten på enheten
-                        // unitIdentity.GetComponent<UnitMovement>()?.Server_SetDestination(destination);
-                    }
-                    else { Debug.LogWarning($"Player {netId} tried to move unit {unitNetId} they don't own."); }
-                }
-            }
-        }
-
-        [Command]
-        void CmdAttackTarget(List<uint> attackerNetIds, NetworkIdentity targetIdentity)
-        {
-            Debug.Log($"Server received attack request from {attackerNetIds.Count} units (Player {netId}) targeting {targetIdentity?.netId ?? 0}"); // Lägg till null-check
-            if (targetIdentity == null) return; // Målet finns inte
-
-            foreach (uint attackerNetId in attackerNetIds)
-            {
-                if (NetworkServer.spawned.TryGetValue(attackerNetId, out NetworkIdentity attackerIdentity))
-                {
-                    if (attackerIdentity.connectionToClient == connectionToClient)
-                    { // Ägarkoll
-                      // TODO: Anropa attack-komponenten på attackeraren
-                      // attackerIdentity.GetComponent<UnitCombat>()?.Server_SetAttackTarget(targetIdentity);
-                    }
-                }
-            }
-        }
-
-        [Command]
-        void CmdSetRallyPoint(NetworkIdentity buildingIdentity, Vector3 position)
-        {
-            if (buildingIdentity != null && buildingIdentity.connectionToClient == connectionToClient)
-            { // Ägarkoll
-                Building building = buildingIdentity.GetComponent<Building>();
-                if (building != null)
-                {
-                    building.Server_SetRallyPoint(position);
-                }
-            }
-        }
-
-        [Command]
-        void CmdClearRallyPoint(NetworkIdentity buildingIdentity)
-        {
-            if (buildingIdentity != null && buildingIdentity.connectionToClient == connectionToClient)
-            { // Ägarkoll
-                Building building = buildingIdentity.GetComponent<Building>();
-                if (building != null)
-                {
-                    building.Server_ClearRallyPoint();
-                }
-            }
-        }
-
-        [Command]
-        void CmdStartCapture(NetworkIdentity workerIdentity, NetworkIdentity targetBuildingIdentity)
-        {
-            Debug.Log($"Server received capture request from worker {workerIdentity?.netId ?? 0} (Player {netId}) for building {targetBuildingIdentity?.netId ?? 0}"); // Null checks
-            if (workerIdentity == null || targetBuildingIdentity == null) return;
-            // Validera att spelaren äger arbetaren
-            if (workerIdentity.connectionToClient != connectionToClient)
-            {
-                Debug.LogWarning($"Player {netId} sent capture command for worker they don't own.");
+                Debug.LogWarning($"Invalid buildableId ({buildableId}) or not a building.");
+                // Skicka TargetRpc med felmeddelande? Target_NotifyPlacementFailed("Invalid building type");
                 return;
             }
 
-            Building targetBuilding = targetBuildingIdentity.GetComponent<Building>();
-            ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
-            if (targetBuilding != null && worker != null)
+            // TODO: Server-side validation:
+            // 1. Har spelaren råd med credits? (ResourceManager.Instance.GetCurrentCredits(netId) >= data.creditCost)
+            // OBS: Dra INTE credits här, det görs under konstruktion via pay-over-time på ConstructionSite.
+            // 2. Är positionen giltig? (Physics checks, etc.)
+            // 3. Uppfylls prerequisites (tech level etc.)?
+
+            bool canAfford = ResourceManager.Instance.GetCurrentCredits(netId) >= data.creditCost; // Bara kolla, inte spendera
+            bool positionValid = true; // TODO: Implementera validering
+            bool requirementsMet = true; // TODO: Implementera krav-check
+
+            if (canAfford && positionValid && requirementsMet)
             {
-                // Försök starta capture på byggnaden
-                bool started = targetBuilding.Server_StartCaptureAttempt(workerIdentity);
-                // Meddela arbetaren (via TargetRpc?) om det lyckades/misslyckades
-                if (started) worker.TargetSetCaptureState(true); else worker.TargetNotifyCaptureFailed("Failed to start capture."); // Exempel
+                // Hämta ConstructionSite-prefab (kanske via BuildableData eller en mappning)
+                GameObject sitePrefab = GetConstructionSitePrefabFor(data); // TODO: Implementera denna funktion
+                if (sitePrefab != null)
+                {
+                    GameObject siteInstance = Instantiate(sitePrefab, position, rotation);
+                    // Ge ägarskap till spelaren som placerade
+                    NetworkServer.Spawn(siteInstance, connectionToClient);
+
+                    // Initiera byggarbetsplatsen
+                    ConstructionSite siteScript = siteInstance.GetComponent<ConstructionSite>(); // Antag script finns
+                    siteScript?.InitializeSite(netId, data); // Skicka med ägar-ID och vilken byggnad som ska byggas
+
+                    Debug.Log($"Spawned ConstructionSite for {data.buildableName} for player {netId}.");
+                }
+                else
+                {
+                    Debug.LogError($"Could not find ConstructionSite prefab for {data.buildableName}");
+                    // Target_NotifyPlacementFailed("Internal server error (prefab missing)");
+                }
             }
             else
             {
-                if (worker != null) worker.TargetNotifyCaptureFailed("Target building invalid.");
+                Debug.LogWarning($"Placement failed for {data.buildableName}. Afford: {canAfford}, ValidPos: {positionValid}, ReqsMet: {requirementsMet}");
+                // Skicka TargetRpc med felmeddelande baserat på orsak
+                // if (!canAfford) Target_NotifyInsufficientResources("Credits (for placement)");
+                // else Target_NotifyPlacementFailed("Invalid location or requirements not met");
             }
         }
 
+
+        // ÄNDRAD: Hanterar både Units och Upgrades, tar quantity
         [Command]
-        void CmdQueueUnit(NetworkIdentity buildingIdentity, int unitTypeId)
+        public void CmdQueueItem(uint buildingNetId, string buildableId, int quantity)
         {
-            Debug.Log($"Server received queue unit {unitTypeId} request for building {buildingIdentity?.netId ?? 0} from player {netId}");
-            if (buildingIdentity != null && buildingIdentity.connectionToClient == connectionToClient)
-            { // Ägarkoll
-                Building building = buildingIdentity.GetComponent<Building>();
-                if (building != null)
-                {
-                    // TODO: Hämta byggnadens produktionskomponent
-                    // ProductionComponent producer = building.GetComponent<ProductionComponent>();
-                    // Hämta enhetsdata baserat på unitTypeId och byggnadens originalFactionID
-                    // UnitData unitToBuild = GetUnitData(building.originalFactionID, unitTypeId);
-                    // Hämta kostnad
-                    // int cost = unitToBuild.cost;
-                    // if (ResourceManager.Instance.Server_TrySpendCredits(this.netId, cost)) {
-                    //     producer.Server_QueueUnit(unitToBuild);
-                    // } else { Target_NotifyInsufficientResources("Credits"); }
-                }
+            if (quantity <= 0) return;
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"CmdQueueItem: Building {buildingNetId} not found."); return; }
+
+            // Validera ägarskap till byggnaden
+            if (buildingIdentity.connectionToClient != connectionToClient)
+            {
+                Debug.LogWarning($"Player {netId} tried to queue item at building {buildingNetId} they don't own.");
+                // TargetRpc_NotifyQueueFailed("Not your building");
+                return;
+            }
+
+            Building building = buildingIdentity.GetComponent<Building>();
+            BuildableData data = ResourceManager.Instance?.GetBuildableDataById(buildableId); // Använd ResourceManager
+
+            if (building == null || data == null) { Debug.LogWarning("CmdQueueItem: Building or BuildableData not found."); return; }
+            if (data.itemType == BuildableItemType.Building) { Debug.LogWarning("CmdQueueItem: Cannot queue a building."); return; } // Kan inte köa byggnader
+
+            // TODO: Kolla om byggnaden KAN producera/forska denna itemType (t.ex. Townhall kan inte bygga tanks)
+            // TODO: Kolla om spelaren uppfyller prerequisites för item (tech level etc.)
+
+            // Kolla resurskostnad (ENDAST CREDITS)
+            int totalCost = data.creditCost * quantity;
+            if (!ResourceManager.Instance.Server_HasEnoughCredits(netId, totalCost)) // Kolla om råd med hela batchen direkt? Eller bara en? Designval.
+            {
+                Debug.LogWarning($"Player {netId} cannot afford to queue {quantity} of {data.buildableName} (Cost: {totalCost})");
+                Target_NotifyInsufficientResources("Credits"); // Skicka notis till klienten
+                return;
+            }
+
+            // Om allt ok, KÖA (kostnad dras antingen vid start av varje item eller pay-over-time för units)
+            // Antag att Building har en metod för detta nu
+            bool queuedOk = building.Server_QueueItem(buildableId, quantity); // Byggnaden hanterar sin egen kö
+
+            if (!queuedOk)
+            {
+                Debug.LogWarning($"Building {buildingNetId} failed to queue item {buildableId}.");
+                // TargetRpc_NotifyQueueFailed("Queue full or invalid item for building?");
+            }
+            else
+            {
+                Debug.Log($"Player {netId} queued {quantity} of {data.buildableName} at building {buildingNetId}.");
             }
         }
 
+
+        // NYTT: Command för högerklick på bygg-knapp
         [Command]
-        void CmdSellBuilding(NetworkIdentity buildingIdentity)
+        public void CmdHandleRightClickBuild(uint buildingNetId, int queueIndex) // queueIndex = -1 för aktiv, >=0 för köad
         {
-            Debug.Log($"Server received sell request for building {buildingIdentity?.netId ?? 0} from player {netId}");
-            if (buildingIdentity != null && buildingIdentity.connectionToClient == connectionToClient)
-            { // Ägarkoll
-                Building building = buildingIdentity.GetComponent<Building>();
-                if (building != null)
-                {
-                    building.Server_Sell(this.netId); // Skicka med säljarens ID
-                }
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) return;
+            // Validera ägarskap
+            if (buildingIdentity.connectionToClient != connectionToClient) return;
+
+            Building building = buildingIdentity.GetComponent<Building>();
+            if (building != null)
+            {
+                // Anropa server-metoden på byggnaden som hanterar högerklicket
+                building.Server_HandleRightClickOnQueue(queueIndex); // Antag att denna metod finns på Building
             }
         }
 
-        [Command]
-        void CmdUpgradeTier(NetworkIdentity townhallIdentity)
-        {
-            Debug.Log($"Server received tier upgrade request for townhall {townhallIdentity?.netId ?? 0} from player {netId}");
-            if (townhallIdentity != null && townhallIdentity.connectionToClient == connectionToClient)
-            { // Ägarkoll
-                Townhall townhall = townhallIdentity.GetComponent<Townhall>(); // Antag att Townhall är en klass
-                if (townhall != null)
-                {
-                    // TODO: townhall.Server_AttemptTierUpgrade(this); // Skicka med spelarobjektet för resurskoll
-                }
-            }
-        }
+
+        // --- Gamla Commands (Granska och anpassa vid behov) ---
+        // Se till att ägarkoll och null-checks finns där de behövs
+
+        [Command] void CmdMoveUnits(List<uint> unitNetIds, Vector3 destination) { /* ... ägarkoll + anropa UnitMovement ... */ }
+        [Command] void CmdAttackTarget(List<uint> attackerNetIds, NetworkIdentity targetIdentity) { /* ... ägarkoll + anropa UnitCombat ... */ }
+        [Command] void CmdSetRallyPoint(NetworkIdentity buildingIdentity, Vector3 position) { /* ... ägarkoll + anropa Building ... */ }
+        [Command] void CmdClearRallyPoint(NetworkIdentity buildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
+        [Command] void CmdStartCapture(NetworkIdentity workerIdentity, NetworkIdentity targetBuildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
+        [Command] void CmdSellBuilding(NetworkIdentity buildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
+        [Command] void CmdUpgradeTier(NetworkIdentity townhallIdentity) { /* ... ägarkoll + anropa Townhall ... */ }
+
+
+        // BORTTAGEN: Server-metoder för resurser finns nu i ResourceManager
+        // [Server] public void Server_AwardCredits(int amount) { ... }
+        // [Server] public bool Server_TrySpendCredits(int amount) { ... }
+        // ... etc ...
+
 
         // --- Server Methods (Called by Server logic) ---
-
-        [Server]
-        public void Server_AwardCredits(int amount)
-        {
-            // Anropas av ResourceManager efter att den har uppdaterat sitt interna värde
-            // credits += amount; // Ta bort - ResourceManager sköter detta nu
-            // Uppdatering sker när ResourceManager kallar Server_UpdateClientResources
-        }
-        [Server]
-        public void Server_AwardMana(int amount)
-        {
-            // Anropas av ResourceManager
-            // mana = Mathf.Clamp(mana + amount, 0, maxMana); // Ta bort
-        }
-
-        // Dessa behövs inte här längre om ResourceManager hanterar allt
-        // [Server] public bool Server_TrySpendCredits(int amount) { ... }
-        // [Server] public bool Server_TrySpendMana(int amount) { ... }
-        // [Server] public void Server_SetMaxMana(int newMax) { ... }
-
-
-        [Server]
-        public void Server_ChangeStatus(PlayerStatus newStatus) { status = newStatus; }
-
-        [Server]
-        public void Server_SetTeam(int newTeamID) { teamID = newTeamID; }
-        [Server]
-        public void Server_SetColor(Color newColor) { playerColor = newColor; }
-        [Server]
-        public void Server_SetName(string newName) { playerName = newName; }
+        [Server] public void Server_ChangeStatus(PlayerStatus newStatus) { status = newStatus; }
+        [Server] public void Server_SetTeam(int newTeamID) { teamID = newTeamID; }
+        [Server] public void Server_SetColor(Color newColor) { playerColor = newColor; }
+        [Server] public void Server_SetName(string newName) { playerName = newName; }
 
 
         // --- ClientRpc & TargetRpc Examples ---
-
-        [ClientRpc] // Körs på alla klienter
-        public void RpcAnnounceMessage(string message)
-        {
-            if (uiManager != null)
-            {
-                // uiManager.ShowNotification(message);
-            }
-            Debug.Log($"[ClientRpc Received] {message}");
-        }
-
-        [TargetRpc] // Körs bara på klienten som äger detta NetworkPlayer-objekt
-        public void Target_NotifyInsufficientResources(string resourceName)
-        {
-            if (uiManager != null)
-            {
-                // uiManager.ShowError($"Not enough {resourceName}!");
-            }
-            Debug.LogWarning($"Server notification: Not enough {resourceName}.");
-        }
+        [ClientRpc] public void RpcAnnounceMessage(string message) { /* ... */ }
+        [TargetRpc] public void Target_NotifyInsufficientResources(string resourceName) { /* ... */ }
+        // Lägg till fler TargetRpc för specifik feedback:
+        // Target_NotifyPlacementFailed(string reason)
+        // Target_NotifyQueueFailed(string reason)
 
 
         // --- SyncVar Hooks (Called on Clients when value changes) ---
 
-        void OnPlayerNameChanged(string oldName, string newName)
-        {
-            // Uppdatera namnet i hierarkin bara om det är den lokala spelaren för tydlighet
-            if (isLocalPlayer) gameObject.name = $"LOCAL Player - {newName} ({netId})";
-            else gameObject.name = $"Remote Player - {newName} ({netId})";
+        void OnPlayerNameChanged(string oldName, string newName) { if (isLocalPlayer) gameObject.name = $"LOCAL Player - {newName} ({netId})"; else gameObject.name = $"Remote Player - {newName} ({netId})"; /* Update UI */ }
+        void OnTeamIDChanged(int oldTeamID, int newTeamID) { /* Update UI */ }
+        void OnColorChanged(Color oldColor, Color newColor) { /* Update UI / Unit Colors? */ }
+        void OnCreditsChanged(int oldCredits, int newCredits) { if (isLocalPlayer) uiManager?.UpdateCreditsDisplay(newCredits); }
+        void OnStatusChanged(PlayerStatus oldStatus, PlayerStatus newStatus) { if (isLocalPlayer) { /* Hantera Defeat etc. */ } /* Uppdatera Scoreboard? */ }
 
-            if (isLocalPlayer && uiManager != null)
-            {
-                // uiManager.UpdatePlayerName(newName);
-            }
-            // Uppdatera lobby UI etc. för alla spelare?
-            Debug.Log($"Hook: Player {oldName} changed name to {newName}");
+        // NYTT: Hooks för Mana Upkeep System
+        void OnManaGenerationChanged(int oldGen, int newGen)
+        {
+            if (isLocalPlayer) manaBarController?.UpdateGeneration(newGen); // Anropa din ManaBarController
+        }
+        void OnManaUpkeepChanged(int oldUpkeep, int newUpkeep)
+        {
+            if (isLocalPlayer) manaBarController?.UpdateUpkeep(newUpkeep); // Anropa din ManaBarController
+        }
+        void OnPowerStatusChanged(bool oldStatus, bool newStatus)
+        {
+            if (isLocalPlayer) manaBarController?.UpdatePowerStatus(newStatus); // Anropa din ManaBarController
+                                                                                // Visa kanske en global varning på skärmen om hasSufficientPower blir false?
+                                                                                // if (isLocalPlayer && !newStatus) uiManager?.ShowPowerWarning(true);
+                                                                                // else if (isLocalPlayer && newStatus) uiManager?.ShowPowerWarning(false);
         }
 
-        void OnTeamIDChanged(int oldTeamID, int newTeamID)
-        {
-            if (isLocalPlayer && uiManager != null)
-            {
-                // uiManager.UpdateTeamDisplay(newTeamID);
-            }
-            Debug.Log($"Hook: {playerName} changed to Team {newTeamID}");
-        }
+        // Behåll om du har Mana som pool
+        // void OnManaChanged(int oldMana, int newMana) { if (isLocalPlayer) uiManager?.UpdateManaDisplay(newMana, maxMana); }
+        // void OnMaxManaChanged(int oldMax, int newMax) { if (isLocalPlayer) uiManager?.UpdateManaDisplay(mana, newMax); }
 
-        void OnColorChanged(Color oldColor, Color newColor)
-        {
-            if (isLocalPlayer && uiManager != null)
-            {
-                // uiManager.UpdatePlayerColorSwatch(newColor);
-            }
-            // TODO: Uppdatera färgen på befintliga enheter/byggnader? Kan vara komplext.
-            // Enklast är att enheter/byggnader sätter sin färg när de spawnar.
-            Debug.Log($"Hook: {playerName} changed color to {newColor}");
-        }
 
-        void OnCreditsChanged(int oldCredits, int newCredits)
+        // --- Helper Functions ---
+        private GameObject GetConstructionSitePrefabFor(BuildableData buildingData)
         {
-            if (isLocalPlayer && uiManager != null)
-            {
-                uiManager.UpdateCreditsDisplay(newCredits);
-                // Spela ev. ljudeffekt om man fick pengar?
-                if (newCredits > oldCredits) { /* Play sound */ }
-            }
-            Debug.Log($"Hook: {playerName} credits changed to {newCredits}");
-        }
-
-        void OnManaChanged(int oldMana, int newMana)
-        {
-            if (isLocalPlayer && uiManager != null)
-            {
-                uiManager.UpdateManaDisplay(newMana, maxMana);
-            }
-            Debug.Log($"Hook: {playerName} mana changed to {newMana}");
-        }
-
-        void OnMaxManaChanged(int oldMax, int newMax)
-        {
-            if (isLocalPlayer && uiManager != null)
-            {
-                uiManager.UpdateManaDisplay(mana, newMax); // Uppdatera med nya maxvärdet
-            }
-            Debug.Log($"Hook: {playerName} max mana changed to {newMax}");
-        }
-
-        void OnStatusChanged(PlayerStatus oldStatus, PlayerStatus newStatus)
-        {
-            if (isLocalPlayer)
-            {
-                Debug.Log($"Hook: My status changed from {oldStatus} to: {newStatus}");
-                if (newStatus == PlayerStatus.Defeated)
-                {
-                    // Visa "Defeated" meddelande, inaktivera input?
-                    // uiManager.ShowDefeatScreen();
-                    // inputManager?.DisableInput();
-                }
-                else if (newStatus == PlayerStatus.Playing && oldStatus != PlayerStatus.Playing)
-                {
-                    // Återaktivera UI/input om man gick från t.ex. Spectating
-                    // inputManager?.EnableInput();
-                }
-            }
-            // Uppdatera global spelarlista/scoreboard UI?
-            Debug.Log($"Hook: {playerName} status changed to {newStatus}");
+            // TODO: Implementera logik för att hitta rätt ConstructionSite prefab.
+            // Kanske baserat på byggnadens storlek, ras, eller en referens i BuildableData?
+            // Returnera null om ingen hittas.
+            Debug.LogWarning("GetConstructionSitePrefabFor() needs implementation!");
+            return buildingData.ghostPrefab; // Använd ghost som placeholder? Fel prefab dock.
         }
     }
 }
