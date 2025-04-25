@@ -342,5 +342,6 @@ namespace RTSGAME
              // Låt SyncVar hooken sköta animation
         }
 
+
     } // End of class HarvesterUnit
 } // End of namespace RTSGAME

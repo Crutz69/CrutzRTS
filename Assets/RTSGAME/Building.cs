@@ -1,4 +1,6 @@
-// Assets/RTSGAME/Scripts/Buildings/Building.cs
+// Filnamn: Building.cs
+// Uppdaterad version med korrigeringar för OnServerDied och ConstructionWorker
+
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Events;
@@ -47,7 +49,7 @@ namespace RTSGAME
         [SerializeField] private float captureDuration = 10.0f;
         [SyncVar(hook = nameof(OnCaptureStateChanged))]
         private bool isBeingCaptured = false;
-        [SyncVar] private uint capturingWorkerNetId = 0;
+        [SyncVar] public uint capturingWorkerNetId = 0; // Gör public för att Worker ska kunna kolla? Eller via metod?
         [SyncVar(hook = nameof(OnCaptureProgressChanged))] private float captureProgress = 0f;
         private Coroutine captureCoroutine = null;
 
@@ -98,7 +100,7 @@ namespace RTSGAME
         public bool IsBeingCaptured => isBeingCaptured;
         public float CaptureProgress => captureProgress;
         public float CaptureDuration => captureDuration;
-        public uint CapturingWorkerNetId => capturingWorkerNetId;
+        // public uint CapturingWorkerNetId => capturingWorkerNetId; // Exponerad via variabel ovan
 
         // --- Events ---
         [Header("Events")]
@@ -122,10 +124,12 @@ namespace RTSGAME
         {
             if (healthComponent == null) healthComponent = GetComponent<Health>();
             if (healthComponent == null) Debug.LogError($"Building {gameObject.name} is missing Health component!", this);
+
             // Prenumerera på Health-event för att veta när vi dör/säljs
             if (healthComponent != null)
             {
-                healthComponent.ServerOnDie.AddListener(Server_OnDie); // Lyssna på när hälsan når noll
+                // *** KORRIGERING HÄR: *** Använd korrekt eventnamn från Health.cs
+                healthComponent.OnServerDied.AddListener(Server_OnDie);
             }
 
             if (selectionIndicator) selectionIndicator.SetActive(false);
@@ -175,9 +179,11 @@ namespace RTSGAME
 
         protected virtual void OnDestroy()
         {
+            // Avprenumerera från Health-event
             if (healthComponent != null)
             {
-                healthComponent.ServerOnDie.RemoveListener(Server_OnDie);
+                // *** KORRIGERING HÄR: *** Använd korrekt eventnamn från Health.cs
+                healthComponent.OnServerDied.RemoveListener(Server_OnDie);
             }
             if (isServer && captureCoroutine != null) { StopCoroutine(captureCoroutine); captureCoroutine = null; }
             // Avregistrera från managers?
@@ -187,7 +193,7 @@ namespace RTSGAME
         void OnFactionChanged(int oldId, int newId) { /* Update visuals based on faction? */ }
         void OnConstructionProgressChanged(float oldProgress, float newProgress) { UpdateProgressBar(); OnConstructionProgress_Local?.Invoke(); }
         void OnCaptureStateChanged(bool oldState, bool newState) { UpdateProgressBar(); if (newState) { OnCaptureStart_Local?.Invoke(); } else { if (captureProgress < 1f) { captureProgress = 0f; UpdateProgressBar(); OnCaptureCancel_Local?.Invoke(); } } }
-        void OnCaptureProgressChanged(float oldProgress, float newProgress) { UpdateProgressBar(); if (oldProgress < 1f && newProgress >= 1f && !isBeingCaptured) { OnCaptureComplete_Local?.Invoke(); } }
+        void OnCaptureProgressChanged(float oldProgress, float newProgress) { UpdateProgressBar(); if (oldProgress < 1f && newProgress >= 1f && !isBeingCaptured) { OnCaptureComplete_Local?.Invoke(); } } // OnCaptureComplete anropas när capture är klar (progress >= 1) men state-ändringen (isBeingCaptured=false) kanske inte skett än
         void OnOwnerChanged(uint oldOwnerNetId, uint newOwnerNetId) { UpdateColorBasedOnOwner(oldOwnerNetId, newOwnerNetId); /* Debug.Log($"{BuildingName} owner changed from {oldOwnerNetId} to {newOwnerNetId}"); */ }
         void OnCurrentStateChanged(BuildingState oldState, BuildingState newState)
         {
@@ -235,9 +241,50 @@ namespace RTSGAME
             }
         }
 
-        [Server] public bool Server_AssignBuilder(uint workerNetId) { if (CanAssignBuilder && !currentBuilderNetIds.Contains(workerNetId)) { if (currentBuilderNetIds.Count == 0 && currentState == BuildingState.Placing) { currentState = BuildingState.Constructing; } currentBuilderNetIds.Add(workerNetId); return true; } return false; }
-        [Server] public void Server_RemoveBuilder(uint workerNetId) { currentBuilderNetIds.Remove(workerNetId); }
-        [Server] public void Server_ContributeConstruction(float workAmount) { if (currentState != BuildingState.Constructing || constructionProgress >= 1f) return; constructionProgress = Mathf.Clamp01(constructionProgress + workAmount / constructionDuration); if (healthComponent != null) { /* Uppdatera hälsa gradvis? Detta är komplext. Enklare är att bara sätta full hälsa när klar.*/ healthComponent.Server_SetHealthDirectly(Mathf.Lerp(1, healthComponent.MaxHealth, constructionProgress)); } if (constructionProgress >= 1f) { Server_MarkAsFunctional(); } }
+        [Server]
+        public bool Server_AssignBuilder(uint workerNetId)
+        {
+            if (CanAssignBuilder && !currentBuilderNetIds.Contains(workerNetId))
+            {
+                if (currentBuilderNetIds.Count == 0 && currentState == BuildingState.Placing)
+                {
+                    currentState = BuildingState.Constructing; // Gå från Placing -> Constructing när första byggaren börjar
+                }
+                currentBuilderNetIds.Add(workerNetId);
+                return true;
+            }
+            return false;
+        }
+
+        [Server]
+        public void Server_RemoveBuilder(uint workerNetId)
+        {
+            currentBuilderNetIds.Remove(workerNetId);
+            // Om ingen bygger längre, men den inte är klar, pausas den? Eller låter vi den bara stå? Designval.
+        }
+
+        [Server]
+        public void Server_ContributeConstruction(float workAmount)
+        {
+            if (currentState != BuildingState.Constructing || constructionProgress >= 1f) return;
+
+            constructionProgress = Mathf.Clamp01(constructionProgress + workAmount / constructionDuration);
+
+            // Gradvis hälsoökning (om Health.cs har metoden Server_SetHealthDirectly)
+            if (healthComponent != null)
+            {
+                // Om du har implementerat Server_SetHealthDirectly i Health.cs och vill ha gradvis hälsa:
+                // healthComponent.Server_SetHealthDirectly(Mathf.Lerp(1, healthComponent.MaxHealth, constructionProgress));
+
+                // Om du INTE har metoden eller föredrar att hälsan sätts till max när klar (enklare):
+                // Låt denna rad vara utkommenterad eller ta bort den.
+            }
+
+            if (constructionProgress >= 1f)
+            {
+                Server_MarkAsFunctional();
+            }
+        }
 
         [Server]
         private void Server_MarkAsFunctional()
@@ -257,8 +304,23 @@ namespace RTSGAME
 
             // Meddela byggare
             List<uint> buildersToNotify = new List<uint>(currentBuilderNetIds);
-            currentBuilderNetIds.Clear();
-            foreach (uint workerNetId in buildersToNotify) { if (NetworkServer.spawned.TryGetValue(workerNetId, out var id)) id.GetComponent<HarvesterUnit>()?.Target_ConstructionComplete(netIdentity); } // Anpassa Worker-klassnamn
+            currentBuilderNetIds.Clear(); // Rensa listan direkt
+            foreach (uint workerNetId in buildersToNotify)
+            {
+                if (NetworkServer.spawned.TryGetValue(workerNetId, out NetworkIdentity id))
+                {
+                    // *** KORRIGERING HÄR: *** Använd ConstructionWorker istället för HarvesterUnit
+                    ConstructionWorker worker = id.GetComponent<ConstructionWorker>();
+                    if (worker != null)
+                    {
+                        worker.Target_ConstructionComplete(this.netIdentity); // Skicka med byggnadens ID
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Unit {id.netId} was listed as a builder for {this.BuildingName} but is not a ConstructionWorker!");
+                    }
+                }
+            }
         }
 
         // NYTT: Implementering av SetPoweredState (anropas av ResourceManager)
@@ -303,21 +365,117 @@ namespace RTSGAME
         }
 
         // --- Capture Logic (Server-Side) ---
-        [Server] public bool Server_StartCaptureAttempt(NetworkIdentity workerIdentity) { /* ... din capture-logik ... */ return false; }
-        private IEnumerator CaptureTimer(NetworkIdentity workerIdentity, float duration) { yield return null; /* ... */ }
-        [Server] public void Server_CancelCaptureAttempt(string reason) { /* ... */ }
-        [Server] public void Server_ChangeOwner(uint newOwnerNetId) { /* ... */ }
-        [Server] private void Server_UpdateColorBasedOnOwner() { /* ... */ }
-        [ClientRpc] private void RpcUpdateVisualColor(Color newColor) { /* ... */ }
+        [Server]
+        public bool Server_StartCaptureAttempt(NetworkIdentity workerIdentity)
+        {
+            // TODO: Implementera logik här!
+            // 1. Validera: Är byggnaden capturable? Är worker av rätt typ? Är worker fiende? Är den redan fångad?
+            if (currentState != BuildingState.Operational || isBeingCaptured || IsDead) return false;
+            if (workerIdentity.netId == this.ownerNetId) return false; // Kan inte fånga egna
+
+            // 2. Sätt state
+            isBeingCaptured = true;
+            capturingWorkerNetId = workerIdentity.netId;
+            captureProgress = 0f;
+
+            // 3. Starta timer/coroutine
+            if (captureCoroutine != null) StopCoroutine(captureCoroutine);
+            captureCoroutine = StartCoroutine(CaptureTimer(workerIdentity, captureDuration));
+            Debug.Log($"{BuildingName} capture started by worker {workerIdentity.netId}");
+            return true;
+        }
+
+        private IEnumerator CaptureTimer(NetworkIdentity workerIdentity, float duration)
+        {
+            float timer = 0f;
+            uint initialWorkerId = workerIdentity.netId; // Spara ID ifall workerIdentity blir null
+
+            while (timer < duration && isBeingCaptured && capturingWorkerNetId == initialWorkerId)
+            {
+                // Kolla om worker fortfarande finns och är nära nog? (Kan bli komplext)
+                timer += Time.deltaTime;
+                captureProgress = Mathf.Clamp01(timer / duration);
+                yield return null;
+            }
+
+            // Om timern slutfördes och vi fortfarande capturear med samma worker
+            if (timer >= duration && isBeingCaptured && capturingWorkerNetId == initialWorkerId)
+            {
+                Server_CompleteCapture(initialWorkerId);
+            }
+            captureCoroutine = null; // Coroutine är klar
+        }
+
+        [Server]
+        private void Server_CompleteCapture(uint newOwnerWorkerNetId)
+        {
+            if (!NetworkServer.spawned.TryGetValue(newOwnerWorkerNetId, out NetworkIdentity workerIdentity))
+            {
+                Debug.LogWarning($"Capture failed for {BuildingName}. Worker {newOwnerWorkerNetId} not found.");
+                Server_CancelCaptureAttempt("Capturing worker disappeared");
+                return;
+            }
+
+            uint newOwnerPlayerNetId = workerIdentity.connectionToClient.identity.netId; // Hämta spelarens NetId från workerns connection
+            Debug.Log($"{BuildingName} captured by player {newOwnerPlayerNetId} (via worker {newOwnerWorkerNetId})");
+
+            // Informera gamla Resource Manager (om den fanns och var igång)
+            if (currentState == BuildingState.Operational || currentState == BuildingState.Disabled_NoPower)
+            {
+                Server_UpdateResourceManagerContribution(false); // Tar bort från gamla ägaren
+            }
+
+            // Byt ägare och state
+            uint oldOwner = ownerNetId;
+            ownerNetId = newOwnerPlayerNetId; // Byt ägare till spelaren som äger workern
+            isBeingCaptured = false;
+            capturingWorkerNetId = 0;
+            captureProgress = 0f; // Nollställ progress (hook körs)
+            currentState = BuildingState.Operational; // Sätt till Operational för nya ägaren
+
+            // Informera nya Resource Manager (om den nu är igång)
+            Server_UpdateResourceManagerContribution(true); // Lägger till för nya ägaren
+
+            // Meddela workern att capture är klar
+            ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+            worker?.Target_CaptureComplete(this.netIdentity);
+        }
+
+
+        [Server]
+        public void Server_CancelCaptureAttempt(string reason)
+        {
+            if (!isBeingCaptured) return;
+            Debug.Log($"{BuildingName} capture cancelled. Reason: {reason}");
+
+            uint workerIdToNotify = capturingWorkerNetId;
+
+            isBeingCaptured = false;
+            capturingWorkerNetId = 0;
+            captureProgress = 0f; // Nollställ progress (hook körs)
+            if (captureCoroutine != null) { StopCoroutine(captureCoroutine); captureCoroutine = null; }
+
+            // Meddela workern som försökte capture att det avbröts
+            if (NetworkServer.spawned.TryGetValue(workerIdToNotify, out NetworkIdentity workerIdentity))
+            {
+                ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+                worker?.Target_CaptureInterrupted(this.netIdentity);
+            }
+        }
+
+
+        [Server] public void Server_ChangeOwner(uint newOwnerNetId) { /* Används inte om capture sköter det */ }
+        [Server] private void Server_UpdateColorBasedOnOwner() { /* TODO: Implementera färguppdatering */ }
+        [ClientRpc] private void RpcUpdateVisualColor(Color newColor) { /* TODO: Implementera färguppdatering */ }
 
         // --- Rally Point Logic ---
         [Command] public void CmdSetRallyPoint(Vector3 position) { if (IsOwner(connectionToClient)) Server_SetRallyPoint(position); }
         [Command] public void CmdClearRallyPoint() { if (IsOwner(connectionToClient)) Server_ClearRallyPoint(); }
         [Server] public void Server_SetRallyPoint(Vector3 position) { rallyPointPosition = position; hasRallyPoint = true; }
         [Server] public void Server_ClearRallyPoint() { hasRallyPoint = false; }
-        public virtual Vector3 GetRallyPointPosition() { return hasRallyPoint ? rallyPointPosition : (transform.position + transform.forward * 5.0f); }
-        protected virtual void UpdateRallyPointVisuals() { /* ... */ }
-        protected virtual void PositionRallyMarker() { /* ... */ }
+        public virtual Vector3 GetRallyPointPosition() { return hasRallyPoint ? rallyPointPosition : (transform.position + transform.forward * 5.0f); } // Ge en default-position framför
+        protected virtual void UpdateRallyPointVisuals() { /* TODO: Implementera rally point visuals */ }
+        protected virtual void PositionRallyMarker() { /* TODO: Implementera rally point visuals */ }
 
         // --- Selection Methods (Klient-sida) ---
         public virtual void Select() { bool isMy = (OwnerNetId != 0 && NetworkClient.active && NetworkClient.localPlayer != null && OwnerNetId == NetworkClient.localPlayer.netId); if (selectionIndicator) selectionIndicator.SetActive(true); if (healthBarSlider) healthBarSlider.gameObject.SetActive(isMy); if (isMy && hasRallyPoint) { /* Rally point visuals */ } UpdateProgressBarVisibility(true); OnSelected_Local?.Invoke(); }
@@ -352,7 +510,7 @@ namespace RTSGAME
 
             // TODO: Skapa explosion/ruin-effekt?
 
-            // Rensa byggare
+            // Rensa byggare (lista rensas i Server_MarkAsFunctional, men bra att ha här med?)
             currentBuilderNetIds.Clear();
 
             // Sätt inaktiv och förstör efter fördröjning
@@ -381,11 +539,11 @@ namespace RTSGAME
 
 
         private IEnumerator Server_DestroyAfterDelay(float delay) { yield return new WaitForSeconds(delay); NetworkServer.Destroy(gameObject); }
-        [ClientRpc] private void RpcSetVisualsActive(bool active) { /* ... */ }
-        protected void UpdateProgressBar() { /* ... Din progress bar logik ... */ }
-        protected void UpdateProgressBarVisibility(bool isSelected) { /* ... */ }
+        [ClientRpc] private void RpcSetVisualsActive(bool active) { /* TODO: Implementera detta */ }
+        protected void UpdateProgressBar() { /* TODO: Implementera progress bar logik */ }
+        protected void UpdateProgressBarVisibility(bool isSelected) { /* TODO: Implementera progress bar logik */ }
         protected bool IsSelected() { return SelectionManager.Instance != null && SelectionManager.Instance.IsSelected(this.gameObject); }
-        protected void UpdateColorBasedOnOwner(uint oldOwnerNetId, uint newOwnerNetId) { /* ... */ }
+        protected void UpdateColorBasedOnOwner(uint oldOwnerNetId, uint newOwnerNetId) { /* TODO: Implementera detta */ }
 
         // ÄNDRAD: Gör dessa virtual så subklasser MÅSTE tänka på dem
         // Anropas när strömmen bryts (currentState -> Disabled_NoPower)

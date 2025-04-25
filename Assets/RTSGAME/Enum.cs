@@ -22,13 +22,13 @@ namespace RTSGAME
     public enum BuildingType // Eller CategoryType?
     {
         None,       // Default / Ingen vald
-        House,      // Din "Hem/Bas"-kategori (Townhall etc.)
-        Shield,     // Din "Försvar"-kategori
+        Building,      // Din "Hem/Bas"-kategori (Townhall etc.)
+        Defence,     // Din "Försvar"-kategori
         Cavalry,    // Din "Kavalleri"-kategori
         Infantry,   // Din "Infanteri"-kategori
         Archer,     // Din "Bågskyttar"-kategori
         Flying,     // Din "Flygande"-kategori
-        Golem       // Din "Stora enheter/Golems"-kategori
+        HeavyUnits       // Din "Stora enheter/Golems"-kategori
     }
 
     public enum BuildingState
@@ -40,6 +40,13 @@ namespace RTSGAME
         Disabled_NoPower,   // Färdigbyggd men avstängd p.g.a. Mana-brist (Upkeep > Generation)
         BeingCaptured,      // Håller på att tas över av fienden
         Destroyed           // Förstörd
+    }
+
+    public enum BuildPauseState
+    {
+        None,       
+        Manual,        
+        Resource, 
     }
 
     /// <summary>
@@ -79,6 +86,15 @@ namespace RTSGAME
         Defeated,   // Har förlorat (alla byggnader/enheter borta?)
         Spectating  // Tittar på spelet (kan implementeras senare)
                     // Lägg till fler vid behov (t.ex. Disconnected, Loading?)
+    }
+
+    public enum CrystalType
+    {
+        None,  // Represents no crystal type (e.g., empty harvester)
+        Green,
+        Blue,
+        Red
+        // Lägg till fler typer här om det behövs
     }
     // --- Lägg till fler av dina egna Enums här vid behov ---
 

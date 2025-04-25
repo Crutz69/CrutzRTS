@@ -1,36 +1,40 @@
-using UnityEngine;
-using UnityEngine.UI;
-using UnityEngine.EventSystems;
-using TMPro; // Om du använder TextMeshPro
+// Filnamn: BuildableItemButtonUI.cs
+// Uppdaterad för att använda UIManager och BuildPauseState från RTSGAME namespace
+// Uppdaterad för att förvänta sig ProductionBuilding i UpdateState
 
+using UnityEngine;
+using UnityEngine.UI;           // För Button, Image
+using UnityEngine.EventSystems; // För IPointerClickHandler
+using TMPro;                    // För TextMeshProUGUI
+using Mirror;                   // För NetworkClient, NetworkPlayer
+using RTSGAME;                  // *** För UIManager, BuildableData, Enums etc. ***
+
+// Lägg detta script på prefaben för dina bygg-knappar (som ligger i BuildablesPanel)
 public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
 {
     [Header("UI References")]
     [SerializeField] private Image iconImage;
     [SerializeField] private TextMeshProUGUI costText;
-    [SerializeField] private Image progressBarImage;
-    [SerializeField] private TextMeshProUGUI queueCountText;
-    [SerializeField] private Image lockedOverlayImage; // En overlay som visas om låst
+    [SerializeField] private Image progressBarImage; // För att visa progress för aktiv produktion
+    [SerializeField] private TextMeshProUGUI queueCountText; // För att visa antal i kön
+    [SerializeField] private Image lockedOverlayImage; // En overlay som visas om låst/ej uppfyllda krav
 
     // Data för denna knapp
     private BuildableData buildableData;
-    private UIController uiController; // Referens för att anropa OnClick-logik
+    // *** ÄNDRING: Variabeltyp och namn ***
+    private UIManager uiManager; // Referens för att anropa OnClick-logik
 
-    // Funktion som anropas av UIController när knappen skapas/uppdateras
-    public void Initialize(BuildableData data, UIController controller)
+    // *** ÄNDRING: Parameter typ och namn ***
+    // Funktion som anropas av UIManager när knappen skapas/uppdateras
+    public void Initialize(BuildableData data, UIManager manager)
     {
         buildableData = data;
-        uiController = controller;
+        // *** ÄNDRING: Variabel tilldelning ***
+        uiManager = manager;
 
         // Sätt grundläggande utseende
-        if (iconImage != null && buildableData.icon != null)
-        {
-            iconImage.sprite = buildableData.icon;
-        }
-        if (costText != null)
-        {
-            costText.text = $"{buildableData.creditCost}"; // Visa bara credit? Lägg till ikon?
-        }
+        if (iconImage != null && buildableData.icon != null) { iconImage.sprite = buildableData.icon; }
+        if (costText != null) { costText.text = $"{buildableData.creditCost}"; }
 
         // Dölj dynamiska element från start
         if (progressBarImage != null) progressBarImage.gameObject.SetActive(false);
@@ -38,14 +42,16 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
         if (lockedOverlayImage != null) lockedOverlayImage.gameObject.SetActive(false);
     }
 
-    // Funktion som anropas av UIController för att uppdatera knappens status
-    // Kräver att UIController skickar med status för den relevanta byggnaden
-    public void UpdateState(Building buildingState) // buildingState kan vara null om ingen byggnad är vald
+    // Funktion som anropas av UIManager för att uppdatera knappens status
+    // Kräver att UIManager skickar med status för den relevanta *produktions*-byggnaden
+    // *** ÄNDRING: Parameter typ (Building -> ProductionBuilding) ***
+    public void UpdateState(ProductionBuilding activeProdBuilding) // Kan vara null om ingen prod.byggnad är aktiv/vald
     {
         if (buildableData == null) return;
 
         // 1. Låst Status (Baserat på data + ev. spelar-progression)
-        bool isLocked = !IsRequirementMet(buildableData); // Din logik för att kolla krav
+        // *** VIKTIGT: IsRequirementMet behöver implementeras korrekt! ***
+        bool isLocked = !IsRequirementMet(buildableData);
         GetComponent<Button>().interactable = !isLocked; // Gör knappen klickbar/ej klickbar
         if (lockedOverlayImage != null) lockedOverlayImage.gameObject.SetActive(isLocked);
         if (iconImage != null) iconImage.color = isLocked ? Color.grey : Color.white; // Gör grå om låst
@@ -58,28 +64,27 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
             return;
         }
 
-        // Om inte låst, kolla kö och progress (kräver att 'buildingState' är den korrekta byggnaden)
+        // Om inte låst, kolla kö och progress (kräver att 'activeProdBuilding' är den korrekta)
         int queueCount = 0;
         bool isBuildingNow = false;
         float progress = 0f;
-        Building.BuildPauseState pauseState = Building.BuildPauseState.None; // Antag att enum finns i Building
+        // *** ÄNDRING: Använder BuildPauseState från RTSGAME namespace ***
+        BuildPauseState pauseState = BuildPauseState.None;
 
-        if (buildingState != null)
+        // *** ÄNDRING: Kollar activeProdBuilding istället för buildingState ***
+        if (activeProdBuilding != null && activeProdBuilding.CanQueueItems()) // Kolla om byggnaden faktiskt kan köa
         {
-            // Räkna i kön (använd synkad lista från buildingState)
-            foreach (string id in buildingState.syncBuildQueueIds)
-            { // Antag att Building har denna SyncList
-                if (id == buildableData.buildableId)
-                {
-                    queueCount++;
-                }
+            // Räkna i kön (använd synkad lista från activeProdBuilding)
+            foreach (string id in activeProdBuilding.syncBuildQueueIds) // Använder SyncList från ProductionBuilding
+            {
+                if (id == buildableData.buildableId) { queueCount++; }
             }
             // Kolla om denna byggs just nu
-            if (buildingState.syncCurrentlyBuildingId == buildableData.buildableId)
-            { // Antag SyncVar finns
+            if (activeProdBuilding.syncCurrentlyBuildingId == buildableData.buildableId) // Använder SyncVar från ProductionBuilding
+            {
                 isBuildingNow = true;
-                progress = buildingState.syncCurrentBuildProgress; // Antag SyncVar finns
-                pauseState = buildingState.syncCurrentPauseState; // Antag SyncVar finns
+                progress = activeProdBuilding.syncCurrentBuildProgress; // Använder SyncVar från ProductionBuilding
+                pauseState = activeProdBuilding.syncCurrentPauseState; // Använder SyncVar från ProductionBuilding
             }
         }
 
@@ -91,10 +96,7 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
                 queueCountText.text = queueCount.ToString();
                 queueCountText.gameObject.SetActive(true);
             }
-            else
-            {
-                queueCountText.gameObject.SetActive(false);
-            }
+            else { queueCountText.gameObject.SetActive(false); }
         }
 
         // 3. Progress Bar
@@ -107,46 +109,49 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
                 // Sätt färg baserat på paus-status
                 switch (pauseState)
                 {
-                    case Building.BuildPauseState.None: progressBarImage.color = Color.green; break; // Normal
-                    case Building.BuildPauseState.Resource: progressBarImage.color = Color.yellow; break; // Resursbrist
-                    case Building.BuildPauseState.Manual: progressBarImage.color = Color.blue; break; // Manuellt pausad
+                    // *** ÄNDRING: Använder BuildPauseState direkt ***
+                    case BuildPauseState.None: progressBarImage.color = Color.green; break; // Normal
+                    case BuildPauseState.Resource: progressBarImage.color = Color.yellow; break; // Resursbrist
+                    case BuildPauseState.Manual: progressBarImage.color = Color.blue; break; // Manuellt pausad
                 }
             }
-            else
-            {
-                progressBarImage.gameObject.SetActive(false);
-            }
+            else { progressBarImage.gameObject.SetActive(false); }
         }
     }
 
     // Hantera klick (både vänster och höger)
     public void OnPointerClick(PointerEventData eventData)
     {
-        if (buildableData == null || uiController == null || !GetComponent<Button>().interactable) return; // Gör inget om ej klickbar
+        // *** ÄNDRING: Kollar uiManager ***
+        if (buildableData == null || uiManager == null || !GetComponent<Button>().interactable) return; // Gör inget om ej klickbar
 
         if (eventData.button == PointerEventData.InputButton.Left)
         {
             // Shift+Click logik
             bool shiftHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-            int amount = shiftHeld ? buildableData.queueBatchAmount : 1;
+            int amount = shiftHeld ? buildableData.queueBatchAmount : 1; // Använder amount inte direkt här
 
-            // Anropa UIController eller direkt NetworkPlayer command
-            uiController.OnBuildableItemClicked(buildableData); // Eller mer specifik funktion
-                                                                // Eller: localPlayer.CmdQueueItem(activeBuilding.netId, buildableData.buildableId, amount);
+            // *** ÄNDRING: Anropar uiManager ***
+            // Anropa UIManager eller direkt NetworkPlayer command
+            // UIManager sköter logiken att hitta rätt byggnad och skicka command
+            uiManager.OnBuildableItemClicked(buildableData);
 
-            Debug.Log($"Left Click on {buildableData.buildableName}, Amount: {amount}");
-
+            Debug.Log($"Left Click on {buildableData.buildableName}, Amount: {amount}"); // Amount används inte direkt
         }
         else if (eventData.button == PointerEventData.InputButton.Right)
         {
             // Högerklick logik för paus/avbryt
             Debug.Log($"Right Click on {buildableData.buildableName}");
 
-            Building activeBuilding = uiController.GetActiveBuildingForQueue(); // Hämta rätt byggnad
+            // *** ÄNDRING: Anropar uiManager ***
+            // Hämta aktiv produktionsbyggnad via UIManager
+            ProductionBuilding activeBuilding = uiManager.GetActiveBuildingForQueue();
             if (activeBuilding == null) return;
 
             NetworkPlayer localPlayer = NetworkClient.localPlayer?.GetComponent<NetworkPlayer>();
             if (localPlayer == null) return;
+
+            // *** VIKTIGT: Förutsätter att NetworkPlayer har CmdHandleRightClickBuild(uint buildingNetId, int queueIndex) ***
 
             // Kolla om denna enhet byggs aktivt
             if (activeBuilding.syncCurrentlyBuildingId == buildableData.buildableId)
@@ -173,11 +178,12 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
         }
     }
 
-    // Exempel på krav-check (behöver implementeras)
+    // Exempel på krav-check (behöver implementeras korrekt!)
     private bool IsRequirementMet(BuildableData data)
     {
         // TODO: Kolla om data.prerequisites är uppfyllda, om data.requiresTechTier är uppnådd etc.
-        // Kräver tillgång till spelardata.
+        // Kräver tillgång till spelardata (t.ex. via NetworkPlayer.localPlayer eller en manager).
+        // Exempel: if (localPlayer.TechTier < data.requiresTechTier) return false;
         return data.isUnlockedInitially; // Temporär placeholder
     }
 }

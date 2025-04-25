@@ -171,6 +171,27 @@ namespace RTSGAME
             // if (newHealth < oldHealth && isLocalPlayer) { /* Spela ljud */ }
         }
 
+        /// <summary>
+        /// Sets the current health directly to a specific value.
+        /// ONLY callable on the server. Clamps the value between 0 and MaxHealth.
+        /// </summary>
+        /// <param name="newHealthValue">The desired health value.</param>
+        [Server] // Viktigt: Denna logik måste köras på servern
+        public void Server_SetHealthDirectly(float newHealthValue)
+        {
+            // Säkerställ att värdet är inom giltiga gränser (0 till maxHealth)
+            // Använd den privata variabeln 'currentHealth' som är SyncVar
+            currentHealth = Mathf.Clamp(newHealthValue, 0f, maxHealth);
+
+            // Eftersom 'currentHealth' är en SyncVar med hook, kommer OnHealthChanged_Hook
+            // automatiskt att köras på klienterna när värdet ändras här på servern,
+            // vilket uppdaterar deras UI.
+
+            // OBS: Denna metod kollar INTE om enheten/byggnaden redan är "död"
+            // och anropar inte dödsevents. Den är avsedd för specifika fall
+            // som att sätta hälsa under konstruktion.
+        }
+
         [ClientRpc]
         private void Rpc_DamageEffect()
         {

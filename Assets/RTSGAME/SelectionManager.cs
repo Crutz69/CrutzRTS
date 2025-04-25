@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Mirror; // Behövs för NetworkIdentity
-using System.Linq; // För Select i GetSelectedUnitsNetworkIdentities
+using System.Linq; // För Select och FirstOrDefault
 
 namespace RTSGAME
 {
@@ -22,55 +22,38 @@ namespace RTSGAME
 
         void Awake()
         {
-            if (Instance == null) Instance = this;
-            else Destroy(gameObject);
+            if (Instance == null)
+            {
+                Instance = this;
+                DontDestroyOnLoad(gameObject); // Singleton bör ofta överleva scenbyten
+            }
+            else
+            {
+                Destroy(gameObject);
+                return; // Avbryt om en instans redan finns
+            }
             // if (selectionBoxVisual != null) selectionBoxVisual.gameObject.SetActive(false); // Dölj från start
         }
 
         void Update()
         {
             // TODO: Hantera logik för att rita/uppdatera box selection rectangle om musknapp hålls nere
-            // Exempel på box-logik (kräver Input System eller gammal Input):
-            /*
-            if (Input.GetMouseButtonDown(0)) { // Vänsterklick ner
-                 // Ignorera om över UI
-                 if (UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject()) return;
-                 startDragPos = Input.mousePosition;
-                 // selectionBoxVisual?.gameObject.SetActive(true); // Visa rektangeln
-            }
-            if (Input.GetMouseButton(0)) { // Vänsterklick hålls nere
-                 if (selectionBoxVisual == null || !selectionBoxVisual.gameObject.activeSelf) return; // Om inte startat korrekt
-
-                 // Uppdatera rektangelns storlek/position
-                  Vector2 currentMousePos = Input.mousePosition;
-                  Vector2 min = Vector2.Min(startDragPos, currentMousePos);
-                  Vector2 max = Vector2.Max(startDragPos, currentMousePos);
-                  // selectionBoxVisual.position = min;
-                  // selectionBoxVisual.sizeDelta = max - min;
-            }
-            if (Input.GetMouseButtonUp(0)) { // Vänsterklick upp
-                 if (selectionBoxVisual == null || !selectionBoxVisual.gameObject.activeSelf) return; // Om inte startat korrekt
-                 // selectionBoxVisual.gameObject.SetActive(false); // Dölj rektangeln
-
-                 // Om boxen är väldigt liten, behandla som klick
-                  float minDragDist = 5f; // Minsta drag för att räknas som box
-                 if (Vector2.Distance(startDragPos, Input.mousePosition) < minDragDist) {
-                      // Simulera klick vid musens position (redan hanterat av InputManager?)
-                      // InputManager kanske ska hantera om det är klick eller box färdig?
-                 } else {
-                      // Utför box selection
-                      Rect screenRect = new Rect(selectionBoxVisual.position.x, selectionBoxVisual.position.y, selectionBoxVisual.sizeDelta.x, selectionBoxVisual.sizeDelta.y);
-                      HandleBoxSelection(screenRect);
-                 }
-            }
-            */
+            // Se tidigare kod för exempel
         }
 
         public void HandleClickSelection(GameObject clickedObject, bool additive)
         {
+            if (clickedObject == null) // Säkerhetskoll
+            {
+                if (!additive) ClearSelection();
+                return;
+            }
+
+            // Försök hitta NetworkIdentity på det klickade objektet eller dess förälder
             NetworkIdentity identity = clickedObject.GetComponentInParent<NetworkIdentity>();
             if (identity == null)
             {
+                // Klickade på något icke-nätverksanslutet (terräng, dekoration?)
                 if (!additive) ClearSelection();
                 return;
             }
@@ -78,11 +61,8 @@ namespace RTSGAME
             GameObject objectToSelect = identity.gameObject;
 
             // TODO: Lägg till filter här? Får denna enhet/byggnad väljas av den här spelaren?
-            // Unit unit = objectToSelect.GetComponent<Unit>();
-            // Building building = objectToSelect.GetComponent<Building>();
-            // if (unit != null && !IsUnitSelectableByLocalPlayer(unit)) return;
-            // if (building != null && !IsBuildingSelectableByLocalPlayer(building)) return;
-
+            // Behöver access till localPlayer NetId, t.ex. via InputManager.Instance.GetLocalPlayerNetId() eller PlayerManager
+            // if (!IsSelectableByLocalPlayer(objectToSelect)) return;
 
             if (!additive)
             {
@@ -97,7 +77,10 @@ namespace RTSGAME
                 }
                 else
                 {
+                    // TODO: Begränsa max antal valda enheter? (t.ex. max 1 byggnad, max X enheter)
+                    // if (CanAddObjectToSelection(objectToSelect)) {
                     AddObjectToSelection(objectToSelect);
+                    // }
                 }
             }
             OnSelectionChanged?.Invoke(); // Meddela att valet ändrats
@@ -105,38 +88,57 @@ namespace RTSGAME
 
         public void HandleBoxSelection(Rect selectionBox) // Antag att Rect är i skärmkoordinater
         {
-            // Rensa inte nödvändigtvis här om vi ska kunna box-selecta additivt? (Kräver Shift-koll)
-            ClearSelection(); // Rensa för nuvarande implementation
+            bool additive = Keyboard.current.shiftKey.isPressed; // Stöd för Shift-box?
 
-            // TODO: Hitta alla valbara objekt inom selectionBox
+            // Rensa bara om vi INTE kör additivt
+            if (!additive)
+            {
+                ClearSelection();
+            }
+
             List<GameObject> newlySelected = new List<GameObject>();
 
-            // Gammal rad:
-            // Unit[] allUnits = FindObjectsOfType<Unit>();
-
-            // Ny, rekommenderad rad:
-            Unit[] allUnits = FindObjectsByType<Unit>(FindObjectsSortMode.None); // <-- Byt till denna
+            // Hitta alla Unit i scenen (effektivare alternativ kan vara att ha en central lista i t.ex. PlayerManager)
+            // Viktigt: Använd FindObjectsByType, FindObjectsOfType är föråldrad
+            Unit[] allUnits = FindObjectsByType<Unit>(FindObjectsSortMode.None);
 
             foreach (Unit unit in allUnits)
             {
-                // ... (resten av din logik för att kolla ägarskap och om enheten är inom selectionBox) ...
-                // if (IsUnitSelectableByLocalPlayer(unit)) { // Behöver IsUnitSelectable... metod
-                //     Vector3 screenPos = Camera.main.WorldToScreenPoint(unit.transform.position);
-                //     if(screenPos.z > 0 && selectionBox.Contains(screenPos)) {
-                //         newlySelected.Add(unit.gameObject);
-                //     }
+                // TODO: Implementera IsSelectableByLocalPlayer-check
+                // if (IsSelectableByLocalPlayer(unit.gameObject))
+                // {
+                Vector3 screenPos = Camera.main.WorldToScreenPoint(unit.transform.position);
+                // Kolla om inom skärmen (z > 0) och inom rektangeln
+                if (screenPos.z > 0 && selectionBox.Contains(screenPos))
+                {
+                    newlySelected.Add(unit.gameObject);
+                }
                 // }
             }
 
-            // Lägg till alla hittade objekt
+            // TODO: Lägg till logik för att välja byggnader med box också?
+            // Building[] allBuildings = FindObjectsByType<Building>(FindObjectsSortMode.None);
+            // foreach (Building building in allBuildings) { ... }
+
+
+            // Lägg till alla hittade objekt (med additiv logik om Shift hölls nere)
             foreach (var obj in newlySelected)
             {
-                AddObjectToSelection(obj);
+                if (additive)
+                {
+                    if (selectedObjects.Contains(obj)) RemoveObjectFromSelection(obj); // Om additiv och redan vald -> ta bort
+                    else AddObjectToSelection(obj); // Om additiv och inte vald -> lägg till
+                }
+                else
+                {
+                    AddObjectToSelection(obj); // Om inte additiv, lägg bara till (rensades tidigare)
+                }
             }
 
-            if (newlySelected.Count > 0)
+            // Meddela bara om något faktiskt ändrades (nya lades till/togs bort)
+            if (newlySelected.Count > 0) // Kan förfinas för att kolla om _faktisk_ ändring skett
             {
-                OnSelectionChanged?.Invoke(); // Meddela bara om något faktiskt valdes
+                OnSelectionChanged?.Invoke();
             }
         }
 
@@ -145,10 +147,16 @@ namespace RTSGAME
         {
             if (obj != null && !selectedObjects.Contains(obj))
             {
+                // TODO: Implementera begränsningar här igen?
+                // if (!CanAddObjectToSelection(obj)) return;
+
                 selectedObjects.Add(obj);
-                obj.GetComponent<Building>()?.Select();
-                obj.GetComponent<Unit>()?.Select();
-                // OnSelectionChanged anropas efter hela operationen (klick/box)
+                // Anropa Select-metoden på objektets relevanta komponent (Unit eller Building)
+                // för att t.ex. visa selection circle/highlight
+                obj.GetComponent<ISelectable>()?.Select(); // Om du använder ett Interface
+                // Eller specifikt:
+                // obj.GetComponent<Building>()?.Select();
+                // obj.GetComponent<Unit>()?.Select();
             }
         }
 
@@ -156,10 +164,11 @@ namespace RTSGAME
         {
             if (obj != null && selectedObjects.Contains(obj))
             {
-                obj.GetComponent<Building>()?.Deselect();
-                obj.GetComponent<Unit>()?.Deselect();
+                // Anropa Deselect på samma sätt som Select
+                obj.GetComponent<ISelectable>()?.Deselect();
+                // obj.GetComponent<Building>()?.Deselect();
+                // obj.GetComponent<Unit>()?.Deselect();
                 selectedObjects.Remove(obj);
-                // OnSelectionChanged anropas efter hela operationen
             }
         }
 
@@ -167,12 +176,13 @@ namespace RTSGAME
         public void ClearSelection()
         {
             // Anropa Deselect() på alla nuvarande valda objekt
-            for (int i = selectedObjects.Count - 1; i >= 0; i--) // Iterera baklänges säkrare vid borttagning (även om vi använder Clear)
+            for (int i = selectedObjects.Count - 1; i >= 0; i--) // Iterera baklänges säkrare
             {
                 if (selectedObjects[i] != null) // Kan vara null om objekt förstörts medan valt
                 {
-                    selectedObjects[i].GetComponent<Building>()?.Deselect();
-                    selectedObjects[i].GetComponent<Unit>()?.Deselect();
+                    selectedObjects[i].GetComponent<ISelectable>()?.Deselect();
+                    // selectedObjects[i].GetComponent<Building>()?.Deselect();
+                    // selectedObjects[i].GetComponent<Unit>()?.Deselect();
                 }
             }
             selectedObjects.Clear();
@@ -195,54 +205,138 @@ namespace RTSGAME
         /// </summary>
         public List<NetworkIdentity> GetSelectedUnitsNetworkIdentities()
         {
-            List<NetworkIdentity> units = new List<NetworkIdentity>();
+            return selectedObjects
+                .Where(obj => obj != null && obj.TryGetComponent<Unit>(out _)) // Filtrera för Units
+                .Select(obj => obj.GetComponent<NetworkIdentity>()) // Plocka ut NetworkIdentity
+                .Where(id => id != null) // Säkerställ att NetworkIdentity finns
+                .ToList(); // Skapa listan
+        }
+
+        // ---- NY METOD TILLAGD HÄR ----
+        /// <summary>
+        /// Returns a list of Network IDs (uint) from all selected GameObjects that have both a Unit and a NetworkIdentity component.
+        /// Denna metod behövs av InputManager för att skicka kommandon som CmdAttackTarget och CmdMoveUnits.
+        /// </summary>
+        public List<uint> GetSelectedUnitNetIds()
+        {
+            List<uint> unitNetIds = new List<uint>();
             foreach (var obj in selectedObjects)
             {
-                // Använd TryGetComponent för säkerhet och prestanda
-                if (obj != null && obj.TryGetComponent<Unit>(out _) && obj.TryGetComponent<NetworkIdentity>(out var id))
+                // Objektet måste finnas, ha en Unit-komponent och en NetworkIdentity-komponent
+                if (obj != null &&
+                    obj.TryGetComponent<Unit>(out _) &&
+                    obj.TryGetComponent<NetworkIdentity>(out var netIdentity))
                 {
-                    units.Add(id);
+                    unitNetIds.Add(netIdentity.netId); // Lägg till Network ID (uint) i listan
                 }
             }
-            return units;
+            return unitNetIds;
+
+            // Alternativ med LINQ:
+            // return selectedObjects
+            //     .Where(obj => obj != null && obj.TryGetComponent<Unit>(out _))
+            //     .Select(obj => obj.GetComponent<NetworkIdentity>())
+            //     .Where(id => id != null)
+            //     .Select(id => id.netId)
+            //     .ToList();
         }
+        // ---- SLUT PÅ NY METOD ----
+
 
         /// <summary>
         /// Returns the first selected GameObject, or null if none are selected.
         /// </summary>
         public GameObject GetFirstSelectedObject()
         {
-            // Använd Linq för enklare kod (lägg till using System.Linq; högst upp)
             return selectedObjects.FirstOrDefault();
-            // Eller traditionell:
-            // return selectedObjects.Count > 0 ? selectedObjects[0] : null;
         }
 
-        // ---- HÄR ÄR DEN TILLAGDA METODEN ----
         /// <summary>
         /// Checks if a specific GameObject is currently in the selection list.
         /// </summary>
-        /// <param name="obj">The GameObject to check.</param>
-        /// <returns>True if the object is selected, false otherwise.</returns>
         public bool IsSelected(GameObject obj)
         {
             if (obj == null) return false;
             return selectedObjects.Contains(obj);
         }
-        // ---- SLUT PÅ TILLAGD METOD ----
 
+        /// <summary>
+        /// Clears the current selection and selects a single specified GameObject.
+        /// </summary>
+        public void SelectSingleObject(GameObject objectToSelect)
+        {
+            if (objectToSelect == null)
+            {
+                ClearSelection();
+                return;
+            }
 
-        // TODO: Fler getters efter behov (t.ex. GetFirstSelectedWorkerIdentity, GetFirstSelectedHarvesterIdentity etc.)
+            NetworkIdentity identity = objectToSelect.GetComponentInParent<NetworkIdentity>();
+            if (identity == null)
+            {
+                ClearSelection();
+                return;
+            }
+
+            // TODO: Lägg till samma filter här som i HandleClickSelection?
+            // if (!IsSelectableByLocalPlayer(identity.gameObject)) { ClearSelection(); return; }
+
+            ClearSelection();
+            AddObjectToSelection(identity.gameObject);
+            OnSelectionChanged?.Invoke();
+            Debug.Log($"Selected single object: {identity.gameObject.name}");
+        }
+
+        // TODO: Fler getters efter behov (t.ex. GetFirstSelectedBuilding, GetPrimarySelectedBuildingIdentity)
         /*
-        public NetworkIdentity GetFirstSelectedHarvesterIdentity() {
-             foreach (var obj in selectedObjects) {
-                  if (obj != null && obj.TryGetComponent<HarvesterUnit>(out _) && obj.TryGetComponent<NetworkIdentity>(out var id)) {
-                       return id;
-                  }
+        public NetworkIdentity GetPrimarySelectedBuildingIdentity()
+        {
+             GameObject firstSelected = GetFirstSelectedObject();
+             if(firstSelected != null && firstSelected.TryGetComponent<Building>(out _) && firstSelected.TryGetComponent<NetworkIdentity>(out var id))
+             {
+                 return id;
              }
              return null;
         }
         */
+
+        // TODO: Hjälpmetod för att kolla om ett objekt får väljas av den lokala spelaren
+        // private bool IsSelectableByLocalPlayer(GameObject obj)
+        // {
+        //     if (obj == null) return false;
+        //     // Hämta localPlayerNetId
+        //     uint? localPlayerNetId = InputManager.Instance?.GetLocalPlayer()?.netId;
+        //     if (localPlayerNetId == null) return false; // Kan inte avgöra utan lokal spelare
+
+        //     if (obj.TryGetComponent<Unit>(out Unit unit))
+        //     {
+        //         return unit.ownerNetId == localPlayerNetId; // Kan bara välja egna enheter?
+        //     }
+        //     if (obj.TryGetComponent<Building>(out Building building))
+        //     {
+        //         return building.ownerNetId == localPlayerNetId; // Kan bara välja egna byggnader?
+        //     }
+        //     // Andra typer av valbara objekt? Resurser? Neutrala?
+        //     return false; // Default: ej valbar
+        // }
+
+        // TODO: Hjälpmetod för att kolla om ett objekt kan läggas till i nuvarande selektion
+        // private bool CanAddObjectToSelection(GameObject objToAdd)
+        // {
+        //     if (selectedObjects.Count == 0) return true; // Alltid ok att lägga till det första
+
+        //     bool alreadyHasBuilding = selectedObjects.Any(obj => obj != null && obj.TryGetComponent<Building>(out _));
+        //     bool addingBuilding = objToAdd.TryGetComponent<Building>(out _);
+
+        //     if(alreadyHasBuilding && addingBuilding) return false; // Kan inte välja flera byggnader
+        //     if(alreadyHasBuilding && !addingBuilding) return false; // Kan inte blanda byggnad och enheter? (Designval)
+        //     if(!alreadyHasBuilding && addingBuilding) return false; // Kan inte blanda enheter och byggnad? (Designval)
+
+        //     // TODO: Max antal enheter?
+        //     // if (!addingBuilding && selectedObjects.Count >= MAX_UNIT_SELECTION) return false;
+
+        //     return true; // Ok att lägga till (enhet till enheter)
+        // }
 
     } // End class SelectionManager
 } // End namespace RTSGAME

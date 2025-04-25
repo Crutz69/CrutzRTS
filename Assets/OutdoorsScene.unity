@@ -2142,6 +2142,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: UIManager
       objectReference: {fileID: 0}
+    - target: {fileID: 6792022552770174955, guid: 4f3d2fde4f6cee945acd606f86b9dbbd, type: 3}
+      propertyPath: minimapImage
+      value: 
+      objectReference: {fileID: 1923801550}
+    - target: {fileID: 6792022552770174955, guid: 4f3d2fde4f6cee945acd606f86b9dbbd, type: 3}
+      propertyPath: buildMenuPanel
+      value: 
+      objectReference: {fileID: 932042511}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -4194,6 +4202,17 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: a7f88249cd3db6a409f389b711575a88, type: 3}
+--- !u!114 &1923801550 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 1855251032949821674, guid: 10905bd75db674e47b19a81fe600a16a, type: 3}
+  m_PrefabInstance: {fileID: 10178344}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1344c3c82d62a2a41a3576d8abb8e3ea, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &2013410473
 GameObject:
   m_ObjectHideFlags: 1
