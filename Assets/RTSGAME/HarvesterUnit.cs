@@ -24,6 +24,7 @@ namespace RTSGAME
         public enum HarvesterState { Idle, MovingToPosition, MovingToCrystal, Harvesting, MovingToRefinery, Depositing }
         [SyncVar(hook = nameof(OnStateChangedHook))]
         private HarvesterState currentState = HarvesterState.Idle;
+        public HarvesterState CurrentState => currentState;
 
         // Inventarie (synkas till klienter för UI/visuella effekter)
         [SyncVar(hook = nameof(OnLoadChangedHook))]

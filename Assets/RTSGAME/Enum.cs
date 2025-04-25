@@ -96,6 +96,32 @@ namespace RTSGAME
         Red
         // Lägg till fler typer här om det behövs
     }
+
+    public enum GameMode
+    { Teams,
+        FFA
+    }
+
+    public enum WorkerState
+    {
+        Idle,
+        MovingToPosition,
+        MovingToBuild,
+        Building,
+        MovingToRepair,
+        Repairing,
+        MovingToCapture,
+        Capturing }
+
+    public enum HarvesterState
+    {
+        Idle,
+        MovingToPosition,
+        MovingToCrystal,
+        Harvesting,
+        MovingToRefinery,
+        Depositing
+    }
     // --- Lägg till fler av dina egna Enums här vid behov ---
 
 } // Slut på namespace RTSGAME

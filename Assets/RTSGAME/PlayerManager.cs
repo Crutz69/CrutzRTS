@@ -2,6 +2,7 @@
 using Mirror;
 using System.Collections.Generic;
 using UnityEngine;
+using static UnityEngine.Rendering.HighDefinition.WaterSurface;
 
 namespace RTSGAME
 {
@@ -107,6 +108,36 @@ namespace RTSGAME
             Debug.Log("Assigning teams and colors...");
             // Glöm inte att uppdatera den synkade listan om den används
             // UpdateSyncedPlayerList();
+        }
+
+        [Server]
+        public bool IsEnemy(uint playerA_NetId, uint playerB_NetId)
+        {
+            if (playerA_NetId == playerB_NetId) return false; // Kan inte vara fiende med sig själv
+            if (playerB_NetId == 0) return true; // Antag att neutrala (ID 0) är attackerbara/fientliga? Designval.
+
+            NetworkPlayer playerA = GetPlayer(playerA_NetId);
+            NetworkPlayer playerB = GetPlayer(playerB_NetId);
+
+            if (playerA == null || playerB == null)
+            {
+                // Om en spelare inte finns (har lämnat?), behandla som fiende? Eller false?
+                // Kanske logga en varning?
+                Debug.LogWarning($"IsEnemy check: Could not find NetworkPlayer for {playerA_NetId} or {playerB_NetId}");
+                return true; // Antag fiende om någon saknas? Säkrare för attack-validering.
+            }
+
+            // TODO: Hämta GameMode (Teams/FFA) från en GameManager eller MatchSettings
+            GameMode currentGameMode = GameManager.Instance.CurrentGameMode; // Antagande
+
+            if (currentGameMode == GameMode.FFA)
+            {
+                return true; // I FFA är alla som inte är du fiender (vi kollade self-check i början)
+            }
+            else // Antag Teams-läge
+            {
+                return playerA.teamID != playerB.teamID; // Fiender om team-ID är olika
+            }
         }
 
 

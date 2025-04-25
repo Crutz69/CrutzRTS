@@ -2,13 +2,10 @@
 using Mirror;
 using UnityEngine;
 using System.Collections.Generic; // För List<>
-using System.Linq; // För .Select() i exempel
+using System.Linq; // För .Select() och andra LINQ-metoder
 
 namespace RTSGAME
 {
-    // Flyttad till Enums.cs? Om inte, definiera den här eller där den används.
-    // public enum PlayerStatus { Playing, Defeated, Spectating }
-
     public class NetworkPlayer : NetworkBehaviour
     {
         [Header("Player Info")]
@@ -17,18 +14,15 @@ namespace RTSGAME
         [SyncVar(hook = nameof(OnColorChanged))] public Color playerColor = Color.grey;
 
         [Header("Resources (Synced from ResourceManager)")]
-        [SyncVar(hook = nameof(OnCreditsChanged))] public int credits = 0; // Startvärde sätts via ResourceManager->RegisterPlayer
-        // Mana-poolen kanske du vill behålla som buffert eller för andra system?
-        // [SyncVar(hook = nameof(OnManaChanged))] public int mana = 0;
-        // [SyncVar(hook = nameof(OnMaxManaChanged))] public int maxMana = 0;
+        [SyncVar(hook = nameof(OnCreditsChanged))] public int credits = 0;
 
-        // NYTT: SyncVars för Mana Upkeep / Power System
+        // NYTT: SyncVars för Mana Upkeep / Power System (MÅSTE matcha ResourceManager)
         [Tooltip("Total Mana genererad per sekund/tick för denna spelare.")]
         [SyncVar(hook = nameof(OnManaGenerationChanged))] public int manaGeneration;
         [Tooltip("Total Mana upkeep per sekund/tick för denna spelare.")]
         [SyncVar(hook = nameof(OnManaUpkeepChanged))] public int manaUpkeep;
         [Tooltip("Har spelaren tillräckligt med Mana Generation för sin Upkeep?")]
-        [SyncVar(hook = nameof(OnPowerStatusChanged))] public bool hasSufficientPower = true; // Startvärde
+        [SyncVar(hook = nameof(OnPowerStatusChanged))] public bool hasSufficientPower = true;
 
         [Header("Status")]
         [SyncVar(hook = nameof(OnStatusChanged))] public PlayerStatus status = PlayerStatus.Playing;
@@ -36,36 +30,20 @@ namespace RTSGAME
         // Referenser till lokala system (sätts i OnStartLocalPlayer)
         private InputManager inputManager;
         private SelectionManager selectionManager;
-        private UIManager uiManager; // Antag att UIManager är en Singleton eller lättåtkomlig
-        private ManaBarController manaBarController; // Specifik controller för mana-baren?
+        private UIManager uiManager;
+        private ManaBarController manaBarController; // Kan vara null
 
         // --- Mirror Callbacks ---
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-            // Servern registrerar spelaren hos ResourceManager när spelaren ansluter helt
-            // Detta görs ofta via NetworkManager.OnServerAddPlayer -> Player spawn -> Register
-            if (ResourceManager.Instance != null)
-            {
-                // TODO: Hämta korrekta startvärden från t.ex. GameSettings eller LobbyData
-                int startCredits = 1000;
-                // int startMana = 100;
-                // int startMaxMana = 100;
-                ResourceManager.Instance.Server_RegisterPlayer(netId, startCredits /*, startMana, startMaxMana*/);
-            }
-            else
-            {
-                Debug.LogError($"ResourceManager Instance not found on server when registering player {netId}!");
-            }
-            Debug.Log($"Player {playerName} (NetId: {netId}) initialized on server.");
+            // Registrering hos managers sker nu via PlayerManager/RTSNetworkManager
         }
 
         public override void OnStopServer()
         {
-            // Avregistrera från ResourceManager när spelaren lämnar
-            ResourceManager.Instance?.Server_UnregisterPlayer(netId);
-            Debug.Log($"Player {playerName} (NetId: {netId}) stopped on server.");
+            // Avregistrering sker nu via PlayerManager/RTSNetworkManager
             base.OnStopServer();
         }
 
@@ -73,7 +51,7 @@ namespace RTSGAME
         {
             base.OnStartClient();
             Debug.Log($"Player {playerName} (NetId: {netId}, Team {teamID}) loaded on client.");
-            // Initial UI-uppdatering triggas av SyncVar Hooks när värdena synkas från servern
+            // Initial UI-uppdatering triggas av SyncVar Hooks när värdena synkas
         }
 
         public override void OnStopClient()
@@ -83,7 +61,8 @@ namespace RTSGAME
             if (isLocalPlayer)
             {
                 Debug.Log("Local player disconnected.");
-                // Ladda meny scen...
+                // TODO: Ladda meny scen...
+                // UnityEngine.SceneManagement.SceneManager.LoadScene("MainMenuScene"); // Exempel
             }
         }
 
@@ -96,15 +75,19 @@ namespace RTSGAME
             // Hitta managers
             inputManager = InputManager.Instance;
             selectionManager = SelectionManager.Instance;
-            uiManager = UIManager.Instance; // Antag att denna hanterar Credits etc.
-            manaBarController = FindObjectOfType<ManaBarController>(); // Hitta ManaBarController specifikt?
+            uiManager = UIManager.Instance;
+            // Försök hitta ManaBarController (kan vara null om den inte finns i scenen)
+            manaBarController = FindObjectOfType<ManaBarController>();
 
+            // Tilldela spelaren till relevanta managers
             if (inputManager != null) inputManager.AssignLocalPlayer(this); else Debug.LogError("NetworkPlayer could not find InputManager Instance!");
             if (uiManager != null) uiManager.SetLocalPlayer(this); else Debug.LogError("NetworkPlayer could not find UIManager Instance!");
             if (selectionManager == null) Debug.LogError("NetworkPlayer could not find SelectionManager Instance!");
-            if (manaBarController == null) Debug.LogWarning("NetworkPlayer could not find ManaBarController Instance!"); // Varning, kanske OK om mana bar inte finns i alla scener
+            // else { selectionManager.SetLocalPlayer(this); } // Om SelectionManager behöver referensen
 
-            // Tvinga en initial uppdatering av UI via hooks, ifall värdena redan är satta
+            if (manaBarController == null) Debug.LogWarning("NetworkPlayer could not find ManaBarController Instance!");
+
+            // Tvinga en initial uppdatering av UI via hooks, ifall värdena redan är satta innan UI hann laddas
             OnCreditsChanged(0, credits);
             OnManaGenerationChanged(0, manaGeneration);
             OnManaUpkeepChanged(0, manaUpkeep);
@@ -115,155 +98,571 @@ namespace RTSGAME
             OnStatusChanged(PlayerStatus.Spectating, status); // Använd ett start-state
         }
 
-        // --- Input Handling (Conceptual - Anropas från InputManager / UI-knappar) ---
+        // --- Commands (Called from Client via InputManager, Run on Server) ---
 
-        // Process-metoderna kan tas bort om UI/InputManager anropar Commands direkt
-        // public void ProcessPlaceBuildingRequest(...) { CmdPlaceBuilding(...); }
-        // public void ProcessQueueItemRequest(...) { CmdQueueItem(...); }
-        // public void ProcessRightClickBuild(...) { CmdHandleRightClickBuild(...); }
+        // --- Movement & Basic Actions ---
 
-
-        // --- Commands (Called from Client, Run on Server) ---
-
-        // ÄNDRAD: Bytt namn, tar buildableId (string), skapar ConstructionSite
+        /// <summary>
+        /// [Command] Orders specified units to move to a destination.
+        /// Also attempts to cancel other jobs for specialized units (workers, harvesters).
+        /// </summary>
         [Command]
-        public void CmdPlaceBuilding(string buildableId, Vector3 position, Quaternion rotation)
+        public void CmdMoveUnits(List<uint> unitNetIds, Vector3 destination)
         {
-            Debug.Log($"Server received place request for {buildableId} from player {netId}");
-            if (ResourceManager.Instance == null) { Debug.LogError("ResourceManager missing on server!"); return; }
+            if (unitNetIds == null || unitNetIds.Count == 0) return;
+            // Debug.Log($"[Server] CmdMoveUnits received for {unitNetIds.Count} units to {destination} from Player {netId}");
 
-            BuildableData data = ResourceManager.Instance.GetBuildableDataById(buildableId); // Använd ResourceManager för att hitta data
-            if (data == null || data.itemType != BuildableItemType.Building)
+            foreach (uint unitId in unitNetIds)
             {
-                Debug.LogWarning($"Invalid buildableId ({buildableId}) or not a building.");
-                // Skicka TargetRpc med felmeddelande? Target_NotifyPlacementFailed("Invalid building type");
-                return;
-            }
-
-            // TODO: Server-side validation:
-            // 1. Har spelaren råd med credits? (ResourceManager.Instance.GetCurrentCredits(netId) >= data.creditCost)
-            // OBS: Dra INTE credits här, det görs under konstruktion via pay-over-time på ConstructionSite.
-            // 2. Är positionen giltig? (Physics checks, etc.)
-            // 3. Uppfylls prerequisites (tech level etc.)?
-
-            bool canAfford = ResourceManager.Instance.GetCurrentCredits(netId) >= data.creditCost; // Bara kolla, inte spendera
-            bool positionValid = true; // TODO: Implementera validering
-            bool requirementsMet = true; // TODO: Implementera krav-check
-
-            if (canAfford && positionValid && requirementsMet)
-            {
-                // Hämta ConstructionSite-prefab (kanske via BuildableData eller en mappning)
-                GameObject sitePrefab = GetConstructionSitePrefabFor(data); // TODO: Implementera denna funktion
-                if (sitePrefab != null)
+                // Försök hitta enheten på servern
+                if (!NetworkServer.spawned.TryGetValue(unitId, out NetworkIdentity identity) || identity == null)
                 {
-                    GameObject siteInstance = Instantiate(sitePrefab, position, rotation);
-                    // Ge ägarskap till spelaren som placerade
-                    NetworkServer.Spawn(siteInstance, connectionToClient);
+                    Debug.LogWarning($"[Server] CmdMoveUnits: Unit {unitId} not found.");
+                    continue; // Gå till nästa enhet
+                }
 
-                    // Initiera byggarbetsplatsen
-                    ConstructionSite siteScript = siteInstance.GetComponent<ConstructionSite>(); // Antag script finns
-                    siteScript?.InitializeSite(netId, data); // Skicka med ägar-ID och vilken byggnad som ska byggas
+                // Validera ägarskap (Viktigt!)
+                // connectionToClient är den anslutning som skickade detta Command
+                if (identity.connectionToClient != connectionToClient)
+                {
+                    Debug.LogWarning($"[Server] Player {netId} tried to move unit {unitId} they don't own.");
+                    continue; // Hoppa över denna enhet
+                }
 
-                    Debug.Log($"Spawned ConstructionSite for {data.buildableName} for player {netId}.");
+                // Försök hämta UnitMovement-komponenten
+                UnitMovement movement = identity.GetComponent<UnitMovement>();
+                if (movement != null)
+                {
+                    // Ge rörelseordern
+                    movement.Server_SetDestination(destination);
+
+                    // *** TILLÄGG: Avbryt andra pågående jobb ***
+                    ConstructionWorker worker = identity.GetComponent<ConstructionWorker>();
+                    if (worker != null && worker.CurrentState != WorkerState.Idle && worker.CurrentState != WorkerState.MovingToPosition)
+                    {
+                        worker.Cmd_GoToIdle();
+                        // Debug.Log($"[Server] Worker {unitId} received move order, stopping current task.");
+                    }
+
+                    HarvesterUnit harvester = identity.GetComponent<HarvesterUnit>();
+                    if (harvester != null && harvester.CurrentState != HarvesterUnit.HarvesterState.Idle && harvester.CurrentState != HarvesterUnit.HarvesterState.MovingToPosition) // Lägg till HarvesterUnit.
+                    {
+                        harvester.Cmd_GoToIdle();
+                        // Debug.Log($"[Server] Harvester {unitId} received move order, stopping current task.");
+                    }
+
+                    // TODO: Avbryt strid? Kräver UnitCombat-komponent.
+                    // UnitCombat combat = identity.GetComponent<UnitCombat>();
+                    // combat?.Server_ClearTarget();
+
+                    // TODO: Avbryt eventuella kanaliserade abilities?
                 }
                 else
                 {
-                    Debug.LogError($"Could not find ConstructionSite prefab for {data.buildableName}");
-                    // Target_NotifyPlacementFailed("Internal server error (prefab missing)");
+                    Debug.LogWarning($"[Server] Unit {unitId} is missing UnitMovement component.");
                 }
             }
-            else
+        }
+
+        /// <summary>
+        /// [Command] Orders specified units to stop their current actions (movement, work, combat).
+        /// </summary>
+        [Command]
+        public void CmdStopUnits(List<uint> unitNetIds)
+        {
+            if (unitNetIds == null || unitNetIds.Count == 0) return;
+            // Debug.Log($"[Server] CmdStopUnits received for {unitNetIds.Count} units from Player {netId}");
+
+            foreach (uint unitId in unitNetIds)
             {
-                Debug.LogWarning($"Placement failed for {data.buildableName}. Afford: {canAfford}, ValidPos: {positionValid}, ReqsMet: {requirementsMet}");
-                // Skicka TargetRpc med felmeddelande baserat på orsak
-                // if (!canAfford) Target_NotifyInsufficientResources("Credits (for placement)");
-                // else Target_NotifyPlacementFailed("Invalid location or requirements not met");
+                if (!NetworkServer.spawned.TryGetValue(unitId, out NetworkIdentity identity) || identity == null)
+                {
+                    Debug.LogWarning($"[Server] CmdStopUnits: Unit {unitId} not found.");
+                    continue;
+                }
+
+                // Validera ägarskap
+                if (identity.connectionToClient != connectionToClient)
+                {
+                    Debug.LogWarning($"[Server] Player {netId} tried to stop unit {unitId} they don't own.");
+                    continue;
+                }
+
+                // 1. Stoppa rörelse via UnitMovement
+                UnitMovement movement = identity.GetComponent<UnitMovement>();
+                movement?.Server_StopMovement();
+
+                // 2. Sätt specialiserade enheter till Idle state via deras kommandon
+                ConstructionWorker worker = identity.GetComponent<ConstructionWorker>();
+                if (worker != null && worker.CurrentState != WorkerState.Idle)
+                {
+                    worker.Cmd_GoToIdle();
+                    // Debug.Log($"[Server] Worker {unitId} received stop order, going idle.");
+                }
+
+                HarvesterUnit harvester = identity.GetComponent<HarvesterUnit>();
+                if (harvester != null && harvester.CurrentState != HarvesterUnit.HarvesterState.Idle)
+                {
+                    harvester.Cmd_GoToIdle();
+                    // Debug.Log($"[Server] Harvester {unitId} received stop order, going idle.");
+                }
+
+                // 3. Stoppa strid (om implementerat)
+                // UnitCombat combat = identity.GetComponent<UnitCombat>();
+                // combat?.Server_ClearTarget(); // Exempel: Säg åt stridskomponenten att sluta attackera
+                // Debug.Log($"[Server] Unit {unitId} received stop order, clearing combat target.");
+
+                // 4. Stoppa eventuella andra pågående actions/abilities
+                // identity.GetComponent<Unit>()?.Server_CancelCurrentAction(); // Exempel
+            }
+        }
+
+        /// <summary>
+        /// [Command] Orders specified units to attack a target.
+        /// </summary>
+        /// <summary>
+        /// [Command] Orders specified units to attack a target, performing server-side validation.
+        /// </summary>
+        [Command]
+        public void CmdAttackTarget(List<uint> attackerNetIds, NetworkIdentity targetIdentity)
+        {
+            // --- Grundläggande validering av indata ---
+            if (attackerNetIds == null || attackerNetIds.Count == 0 || targetIdentity == null)
+            {
+                Debug.LogError("[Server] CmdAttackTarget called with invalid arguments (null list or target).");
+                return;
+            }
+
+            // --- Validering av målet ---
+            Health targetHealth = targetIdentity.GetComponent<Health>();
+            if (targetHealth == null || targetHealth.IsDead)
+            {
+                // Debug.Log($"[Server] CmdAttackTarget: Target {targetIdentity.netId} is invalid or dead.");
+                // Ingen idé att attackera, enheterna kommer troligen stanna eller gå idle.
+                // Alternativt, ge Move-order till positionen?
+                // CmdMoveUnits(attackerNetIds, targetIdentity.transform.position);
+                return;
+            }
+
+            // --- **NYTT: Server-Side Fiende-validering** ---
+            // Först, kolla om målet KAN identifieras via ISelectable för att få ägar-ID
+            ISelectable targetSelectable = targetIdentity.GetComponent<ISelectable>();
+            if (targetSelectable == null)
+            {
+                Debug.LogError($"[Server] CmdAttackTarget: Target {targetIdentity.netId} does not implement ISelectable! Cannot determine owner/enemy status.");
+                return; // Kan inte avgöra om det är en giltig attack
+            }
+
+            // Hämta ägar-ID för målet
+            uint targetOwnerNetId = targetSelectable.GetOwnerNetId();
+
+            // Anropa PlayerManager FÖR ATT AVGÖRA OM DET ÄR EN FIENDE
+            // (Denna metod måste finnas i PlayerManager.cs och fungera på servern)
+            if (PlayerManager.Instance == null || !PlayerManager.Instance.IsEnemy(this.netId, targetOwnerNetId))
+            {
+                // Om PlayerManager saknas ELLER IsEnemy returnerar false (dvs. målet är inte en fiende)
+                Debug.LogWarning($"[Server] Player {netId} tried to attack non-enemy target {targetIdentity.netId} (Owner: {targetOwnerNetId}). Command ignored.");
+                // Ignorera attack-kommandot. Kanske ge en Move-order istället?
+                // CmdMoveUnits(attackerNetIds, targetIdentity.transform.position);
+                return; // Avbryt kommandot
+            }
+            // --- SLUT PÅ Fiende-validering ---
+
+
+            // --- Ge Attack-Order till varje anfallare ---
+            int attackersOrdered = 0;
+            foreach (uint unitId in attackerNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(unitId, out NetworkIdentity attackerIdentity) && attackerIdentity != null)
+                {
+                    // Validera ägarskap för anfallaren
+                    if (attackerIdentity.connectionToClient != connectionToClient)
+                    {
+                        Debug.LogWarning($"[Server] Player {netId} tried to order attack from unit {unitId} they don't own.");
+                        continue; // Hoppa över denna enhet
+                    }
+
+                    // Försök hitta stridskomponent (Antagande: UnitCombat)
+                    UnitCombat combat = attackerIdentity.GetComponent<UnitCombat>(); // **Antagande**
+                    if (combat != null)
+                    {
+                        // Ge ordern till stridskomponenten
+                        combat.Server_SetAttackTarget(targetIdentity); // **Antagande**
+                        attackersOrdered++;
+
+                        // Avbryt andra jobb för specialenheter? Nej, låt UnitCombat hantera det.
+                        // Om en worker får attackorder ska dess AI/Combat avgöra om den ska sluta bygga.
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Server] Unit {unitId} is missing UnitCombat component and cannot attack.");
+                        // Ska enheten flytta dit istället? Eller bara ignoreras?
+                        // attackerIdentity.GetComponent<UnitMovement>()?.Server_SetDestination(targetIdentity.transform.position);
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[Server] CmdAttackTarget: Attacker Unit {unitId} not found.");
+                }
+            }
+            // Debug.Log($"[Server] CmdAttackTarget: Ordered {attackersOrdered}/{attackerNetIds.Count} units to attack target {targetIdentity.netId}");
+        } // Slut på CmdAttackTarget
+
+        /// <summary>
+        /// [Command] Orders specified units to perform an Attack-Move towards a destination.
+        /// </summary>
+        [Command]
+        public void CmdAttackMoveUnits(List<uint> unitNetIds, Vector3 destination)
+        {
+            if (unitNetIds == null || unitNetIds.Count == 0) return;
+            Debug.Log($"[Server] CmdAttackMoveUnits received for {unitNetIds.Count} units to {destination} from Player {netId}. IMPLEMENT SERVER LOGIC!");
+
+            foreach (uint unitId in unitNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(unitId, out NetworkIdentity identity))
+                {
+                    // Validera ägarskap
+                    if (identity.connectionToClient != connectionToClient) { continue; }
+
+                    // *** TODO: IMPLEMENTERA SERVERLOGIK FÖR ATTACK-MOVE ***
+                    // Detta kräver troligen en AI-komponent på enheten.
+                    // Exempel:
+                    // UnitAI ai = identity.GetComponent<UnitAI>();
+                    // if (ai != null)
+                    // {
+                    //     ai.Server_OrderAttackMove(destination);
+                    // }
+                    // else { Debug.LogWarning($"[Server] Unit {unitId} cannot Attack-Move (missing AI?). Moving normally.");
+                    //        identity.GetComponent<UnitMovement>()?.Server_SetDestination(destination); }
+
+                    // Tillfällig fallback: Flytta bara enheterna
+                    identity.GetComponent<UnitMovement>()?.Server_SetDestination(destination);
+
+                    // Se till att specialiserade enheter avbryter jobb
+                    ConstructionWorker worker = identity.GetComponent<ConstructionWorker>(); worker?.Cmd_GoToIdle();
+                    HarvesterUnit harvester = identity.GetComponent<HarvesterUnit>(); harvester?.Cmd_GoToIdle();
+                }
             }
         }
 
 
-        // ÄNDRAD: Hanterar både Units och Upgrades, tar quantity
+        // --- Rally Point ---
+
+        /// <summary>
+        /// [Command] Sets the rally point for a specific building owned by the player.
+        /// </summary>
         [Command]
-        public void CmdQueueItem(uint buildingNetId, string buildableId, int quantity)
+        public void CmdSetRallyPoint(uint buildingNetId, Vector3 position)
         {
-            if (quantity <= 0) return;
-            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"CmdQueueItem: Building {buildingNetId} not found."); return; }
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity))
+            {
+                Debug.LogWarning($"[Server] CmdSetRallyPoint: Building {buildingNetId} not found.");
+                return;
+            }
 
             // Validera ägarskap till byggnaden
             if (buildingIdentity.connectionToClient != connectionToClient)
             {
-                Debug.LogWarning($"Player {netId} tried to queue item at building {buildingNetId} they don't own.");
-                // TargetRpc_NotifyQueueFailed("Not your building");
+                Debug.LogWarning($"[Server] Player {netId} tried to set rally point for building {buildingNetId} they don't own.");
                 return;
             }
-
-            Building building = buildingIdentity.GetComponent<Building>();
-            BuildableData data = ResourceManager.Instance?.GetBuildableDataById(buildableId); // Använd ResourceManager
-
-            if (building == null || data == null) { Debug.LogWarning("CmdQueueItem: Building or BuildableData not found."); return; }
-            if (data.itemType == BuildableItemType.Building) { Debug.LogWarning("CmdQueueItem: Cannot queue a building."); return; } // Kan inte köa byggnader
-
-            // TODO: Kolla om byggnaden KAN producera/forska denna itemType (t.ex. Townhall kan inte bygga tanks)
-            // TODO: Kolla om spelaren uppfyller prerequisites för item (tech level etc.)
-
-            // Kolla resurskostnad (ENDAST CREDITS)
-            int totalCost = data.creditCost * quantity;
-            if (!ResourceManager.Instance.Server_HasEnoughCredits(netId, totalCost)) // Kolla om råd med hela batchen direkt? Eller bara en? Designval.
-            {
-                Debug.LogWarning($"Player {netId} cannot afford to queue {quantity} of {data.buildableName} (Cost: {totalCost})");
-                Target_NotifyInsufficientResources("Credits"); // Skicka notis till klienten
-                return;
-            }
-
-            // Om allt ok, KÖA (kostnad dras antingen vid start av varje item eller pay-over-time för units)
-            // Antag att Building har en metod för detta nu
-            bool queuedOk = building.Server_QueueItem(buildableId, quantity); // Byggnaden hanterar sin egen kö
-
-            if (!queuedOk)
-            {
-                Debug.LogWarning($"Building {buildingNetId} failed to queue item {buildableId}.");
-                // TargetRpc_NotifyQueueFailed("Queue full or invalid item for building?");
-            }
-            else
-            {
-                Debug.Log($"Player {netId} queued {quantity} of {data.buildableName} at building {buildingNetId}.");
-            }
-        }
-
-
-        // NYTT: Command för högerklick på bygg-knapp
-        [Command]
-        public void CmdHandleRightClickBuild(uint buildingNetId, int queueIndex) // queueIndex = -1 för aktiv, >=0 för köad
-        {
-            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) return;
-            // Validera ägarskap
-            if (buildingIdentity.connectionToClient != connectionToClient) return;
 
             Building building = buildingIdentity.GetComponent<Building>();
             if (building != null)
             {
-                // Anropa server-metoden på byggnaden som hanterar högerklicket
-                building.Server_HandleRightClickOnQueue(queueIndex); // Antag att denna metod finns på Building
+                // TODO: Kolla om byggnaden KAN ha ett rally point (t.ex. produktionsbyggnader)
+                // ProductionStructure prod = building as ProductionStructure; // Exempel på check
+                // if (prod != null) {
+                building.Server_SetRallyPoint(position);
+                // Debug.Log($"[Server] Rally point set for building {buildingNetId} at {position}");
+                // } else { Debug.LogWarning($"[Server] Building {buildingNetId} cannot have a rally point."); }
             }
+            else { Debug.LogWarning($"[Server] Building {buildingNetId} is missing Building component."); }
+        }
+
+        /// <summary>
+        /// [Command] Clears the rally point for a specific building owned by the player.
+        /// </summary>
+        [Command]
+        public void CmdClearRallyPoint(uint buildingNetId)
+        {
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) return;
+            if (buildingIdentity.connectionToClient != connectionToClient) return; // Ägarskapskoll
+            Building building = buildingIdentity.GetComponent<Building>();
+            // TODO: Kolla om den kan ha rally point?
+            building?.Server_ClearRallyPoint();
         }
 
 
-        // --- Gamla Commands (Granska och anpassa vid behov) ---
-        // Se till att ägarkoll och null-checks finns där de behövs
+        // --- Building Placement & Production Queue ---
 
-        [Command] void CmdMoveUnits(List<uint> unitNetIds, Vector3 destination) { /* ... ägarkoll + anropa UnitMovement ... */ }
-        [Command] void CmdAttackTarget(List<uint> attackerNetIds, NetworkIdentity targetIdentity) { /* ... ägarkoll + anropa UnitCombat ... */ }
-        [Command] void CmdSetRallyPoint(NetworkIdentity buildingIdentity, Vector3 position) { /* ... ägarkoll + anropa Building ... */ }
-        [Command] void CmdClearRallyPoint(NetworkIdentity buildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
-        [Command] void CmdStartCapture(NetworkIdentity workerIdentity, NetworkIdentity targetBuildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
-        [Command] void CmdSellBuilding(NetworkIdentity buildingIdentity) { /* ... ägarkoll + anropa Building ... */ }
-        [Command] void CmdUpgradeTier(NetworkIdentity townhallIdentity) { /* ... ägarkoll + anropa Townhall ... */ }
+        /// <summary>
+        /// [Command] Requests to place a construction site for a specific buildable item.
+        /// </summary>
+        [Command]
+        public void CmdPlaceBuilding(string buildableId, Vector3 position, Quaternion rotation)
+        {
+            Debug.Log($"[Server] CmdPlaceBuilding received for {buildableId} from player {netId}");
+            if (ResourceManager.Instance == null) { Debug.LogError("[Server] ResourceManager missing!"); return; }
+
+            if (RTSNetworkManager.singleton.BuildableDB == null) // Kolla om databasen är kopplad
+            {
+                Debug.LogError("[Server] BuildableDatabase reference missing in RTSNetworkManager!");
+                Target_NotifyPlacementFailed("Internal server error (database missing)");
+                return;
+            }
+            if (RTSNetworkManager.singleton.BuildableDB == null) // Kolla om databasen är kopplad
+            {
+                Debug.LogError("[Server] CmdQueueItem: BuildableDatabase reference missing in RTSNetworkManager!");
+                Target_NotifyQueueFailed("Internal server error (database missing)"); // Använd rätt TargetRpc
+                return;
+            }
+            BuildableData data = RTSNetworkManager.singleton.BuildableDB.GetDataById(buildableId); // Använd databasens metod!
+
+            // TODO: Implementera validering av position och prerequisites
+            bool positionValid = true; // placeholder
+            bool requirementsMet = true; // placeholder
+                                         // Kolla endast kostnad, spendera inte än
+            bool canAfford = ResourceManager.Instance.GetCurrentCredits(netId) >= data.creditCost;
+
+            if (canAfford && positionValid && requirementsMet)
+            {
+                GameObject sitePrefab = GetConstructionSitePrefabFor(data); // Kräver implementation
+                if (sitePrefab != null)
+                {
+                    GameObject siteInstance = Instantiate(sitePrefab, position, rotation);
+                    NetworkServer.Spawn(siteInstance, connectionToClient); // Ge ägarskap till spelaren
+                    ConstructionSite siteScript = siteInstance.GetComponent<ConstructionSite>(); // **Antagande: ConstructionSite script finns**
+                    if (siteScript != null)
+                    {
+                        siteScript.InitializeSite(netId, data); // **Antagande: InitializeSite metod finns**
+                        Debug.Log($"[Server] Spawned ConstructionSite for {data.buildableName} for player {netId}.");
+                    }
+                    else { Debug.LogError("[Server] Spawned ConstructionSite is missing ConstructionSite script!"); NetworkServer.Destroy(siteInstance); Target_NotifyPlacementFailed("Internal server error (script missing)"); }
+                }
+                else
+                {
+                    Debug.LogError($"[Server] Could not find ConstructionSite prefab for {data.buildableName}");
+                    Target_NotifyPlacementFailed("Internal server error (prefab missing)");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[Server] Placement failed for {data.buildableName}. Afford: {canAfford}, ValidPos: {positionValid}, ReqsMet: {requirementsMet}");
+                if (!canAfford) Target_NotifyInsufficientResources("Credits");
+                else Target_NotifyPlacementFailed("Invalid location or requirements not met");
+            }
+        }
+
+        /// <summary>
+        /// [Command] Requests to queue a unit or upgrade at a specific building.
+        /// </summary>
+        [Command]
+        public void CmdQueueItem(uint buildingNetId, string buildableId, int quantity)
+        {
+            if (quantity <= 0) return;
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"[Server] CmdQueueItem: Building {buildingNetId} not found."); return; }
+            if (buildingIdentity.connectionToClient != connectionToClient) { Target_NotifyQueueFailed("Not your building"); return; } // Ägarskap
+
+            Building building = buildingIdentity.GetComponent<Building>();
+            //BuildableData data = ResourceManager.Instance?.GetBuildableDataById(buildableId);
+            if (RTSNetworkManager.singleton.BuildableDB == null) // Kolla om databasen är kopplad
+            {
+                Debug.LogError("[Server] CmdQueueItem: BuildableDatabase reference missing in RTSNetworkManager!");
+                Target_NotifyQueueFailed("Internal server error (database missing)");
+                return;
+            }
+            BuildableData data = RTSNetworkManager.singleton.BuildableDB.GetDataById(buildableId); // Använd databasens metod!
+            if (building == null || data == null) { Debug.LogWarning("[Server] CmdQueueItem: Building or BuildableData not found."); return; }
+            if (data.itemType == RTSGAME.BuildableItemType.Building)
+            {
+                Debug.LogWarning("[Server] CmdQueueItem: Cannot queue a building.");
+                return;
+            } // Kan inte köa byggnader
+
+            // TODO: Validera om byggnaden KAN producera/forska detta (t.ex. building.CanProduce(buildableId))
+            // TODO: Validera om spelaren uppfyller prerequisites
+
+            int totalCost = data.creditCost * quantity;
+            if (!ResourceManager.Instance.Server_HasEnoughCredits(netId, totalCost)) { Target_NotifyInsufficientResources("Credits"); return; }
+
+            // Antag att Building har metoden för att köa
+            bool queuedOk = building.Server_QueueItem(buildableId, quantity); // **Antagande: Server_QueueItem finns**
+
+            if (!queuedOk) { Target_NotifyQueueFailed("Queue full or invalid item?"); }
+            // else { Debug.Log($"[Server] Player {netId} queued {quantity} of {data.buildableName} at building {buildingNetId}."); }
+        }
 
 
-        // BORTTAGEN: Server-metoder för resurser finns nu i ResourceManager
-        // [Server] public void Server_AwardCredits(int amount) { ... }
-        // [Server] public bool Server_TrySpendCredits(int amount) { ... }
-        // ... etc ...
+
+        /// <summary>
+        /// [Command] Handles right-click actions on items in a building's queue (e.g., cancel).
+        /// </summary>
+        [Command]
+        public void CmdHandleRightClickBuild(uint buildingNetId, int queueIndex)
+        {
+            if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity buildingIdentity)) return;
+            if (buildingIdentity.connectionToClient != connectionToClient) return; // Ägarskap
+            Building building = buildingIdentity.GetComponent<Building>();
+            building?.Server_HandleRightClickOnQueue(queueIndex); // **Antagande: Server_HandleRightClickOnQueue finns**
+        }
+
+
+        // --- Worker Commands ---
+
+        /// <summary>
+        /// [Command] Orders specified workers to construct a target building site.
+        /// </summary>
+        [Command]
+        public void CmdOrderWorkersToBuild(List<uint> workerNetIds, uint targetBuildingNetId)
+        {
+            if (workerNetIds == null || workerNetIds.Count == 0 || targetBuildingNetId == 0) return;
+            if (!NetworkServer.spawned.TryGetValue(targetBuildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"[Server] CmdOrderWorkersToBuild: Target building {targetBuildingNetId} not found."); return; }
+            Building targetBuilding = buildingIdentity.GetComponent<Building>();
+            if (targetBuilding == null || !targetBuilding.NeedsConstruction) { Debug.LogWarning($"[Server] CmdOrderWorkersToBuild: Target {targetBuildingNetId} is not a valid construction site."); return; }
+            // TODO: Validera att byggnaden ägs av spelaren? (Man bygger väl bara egna?)
+
+            int workersSent = 0;
+            foreach (uint workerId in workerNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(workerId, out NetworkIdentity workerIdentity))
+                {
+                    if (workerIdentity.connectionToClient != connectionToClient) { Debug.LogWarning($"[Server] Player {netId} tried to order worker {workerId} they don't own."); continue; } // Ägarskap
+                    ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+                    if (worker != null)
+                    {
+                        worker.Cmd_StartBuilding(buildingIdentity); // Worker sköter resten (flytta + bygg)
+                        workersSent++;
+                    }
+                    else { Debug.LogWarning($"[Server] Unit {workerId} is not a ConstructionWorker."); }
+                }
+                else { Debug.LogWarning($"[Server] CmdOrderWorkersToBuild: Worker {workerId} not found."); }
+            }
+            // Debug.Log($"[Server] Sent {workersSent} workers to build {targetBuildingNetId}");
+        }
+
+        /// <summary>
+        /// [Command] Orders specified workers to capture a target building.
+        /// </summary>
+        [Command]
+        public void CmdOrderWorkersToCapture(List<uint> workerNetIds, uint targetBuildingNetId)
+        {
+            if (workerNetIds == null || workerNetIds.Count == 0 || targetBuildingNetId == 0) return;
+            if (!NetworkServer.spawned.TryGetValue(targetBuildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"[Server] CmdOrderWorkersToCapture: Target building {targetBuildingNetId} not found."); return; }
+            Building targetBuilding = buildingIdentity.GetComponent<Building>();
+            if (targetBuilding == null || targetBuilding.IsDead || targetBuilding.IsBeingCaptured) { Debug.LogWarning($"[Server] CmdOrderWorkersToCapture: Target {targetBuildingNetId} is not capturable right now."); return; }
+            // Validera att målet INTE ägs av spelaren
+            if (targetBuilding.OwnerNetId == this.netId) { Debug.LogWarning($"[Server] Player {netId} cannot capture their own building {targetBuildingNetId}."); return; }
+            // TODO: Validera att målet är neutralt eller fiende (via PlayerManager?)
+
+            int workersSent = 0;
+            foreach (uint workerId in workerNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(workerId, out NetworkIdentity workerIdentity))
+                {
+                    if (workerIdentity.connectionToClient != connectionToClient) { continue; } // Ägarskap
+                    ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+                    if (worker != null)
+                    {
+                        worker.Cmd_InitiateCapture(buildingIdentity); // Worker sköter resten
+                        workersSent++;
+                    }
+                    else { Debug.LogWarning($"[Server] Unit {workerId} is not a ConstructionWorker."); }
+                }
+                else { Debug.LogWarning($"[Server] CmdOrderWorkersToCapture: Worker {workerId} not found."); }
+            }
+            // Debug.Log($"[Server] Sent {workersSent} workers to capture {targetBuildingNetId}");
+        }
+
+        /// <summary>
+        /// [Command] Orders specified workers to repair a target building.
+        /// </summary>
+        [Command]
+        public void CmdOrderWorkersToRepair(List<uint> workerNetIds, uint targetBuildingNetId)
+        {
+            if (workerNetIds == null || workerNetIds.Count == 0 || targetBuildingNetId == 0) return;
+            if (!NetworkServer.spawned.TryGetValue(targetBuildingNetId, out NetworkIdentity buildingIdentity)) { Debug.LogWarning($"[Server] CmdOrderWorkersToRepair: Target building {targetBuildingNetId} not found."); return; }
+            Building targetBuilding = buildingIdentity.GetComponent<Building>();
+            if (targetBuilding == null || targetBuilding.IsDead || targetBuilding.healthComponent == null || targetBuilding.healthComponent.CurrentHealth >= targetBuilding.healthComponent.MaxHealth) { Debug.LogWarning($"[Server] CmdOrderWorkersToRepair: Target {targetBuildingNetId} does not need repair."); return; }
+            // Validera att byggnaden ägs av spelaren eller är allierad?
+            if (targetBuilding.OwnerNetId != this.netId) { Debug.LogWarning($"[Server] Player {netId} cannot repair building {targetBuildingNetId} they don't own."); return; } // Tillåt bara egna?
+
+            int workersSent = 0;
+            foreach (uint workerId in workerNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(workerId, out NetworkIdentity workerIdentity))
+                {
+                    if (workerIdentity.connectionToClient != connectionToClient) { continue; } // Ägarskap
+                    ConstructionWorker worker = workerIdentity.GetComponent<ConstructionWorker>();
+                    if (worker != null)
+                    {
+                        worker.Cmd_StartRepairing(buildingIdentity); // Worker sköter resten
+                        workersSent++;
+                    }
+                    else { Debug.LogWarning($"[Server] Unit {workerId} is not a ConstructionWorker."); }
+                }
+                else { Debug.LogWarning($"[Server] CmdOrderWorkersToRepair: Worker {workerId} not found."); }
+            }
+            // Debug.Log($"[Server] Sent {workersSent} workers to repair {targetBuildingNetId}");
+        }
+
+        // --- Harvester Commands ---
+
+        /// <summary>
+        /// [Command] Orders specified harvesters to harvest a target crystal.
+        /// </summary>
+        [Command]
+        public void CmdOrderHarvestersToHarvest(List<uint> harvesterNetIds, uint targetCrystalNetId)
+        {
+            if (harvesterNetIds == null || harvesterNetIds.Count == 0 || targetCrystalNetId == 0) return;
+            if (!NetworkServer.spawned.TryGetValue(targetCrystalNetId, out NetworkIdentity crystalIdentity)) { Debug.LogWarning($"[Server] CmdOrderHarvestersToHarvest: Target crystal {targetCrystalNetId} not found."); return; }
+            HarvestableCrystal targetCrystal = crystalIdentity.GetComponent<HarvestableCrystal>();
+            if (targetCrystal == null) { Debug.LogWarning($"[Server] CmdOrderHarvestersToHarvest: Target {targetCrystalNetId} is not a HarvestableCrystal."); return; }
+            // TODO: Kolla om kristallen redan är upptagen av NÅGON ANNAN än de som nu beordras? Kan bli komplext. Låt Harvester hantera reservationen.
+
+            int harvestersSent = 0;
+            foreach (uint harvesterId in harvesterNetIds)
+            {
+                if (NetworkServer.spawned.TryGetValue(harvesterId, out NetworkIdentity harvesterIdentity))
+                {
+                    if (harvesterIdentity.connectionToClient != connectionToClient) { continue; } // Ägarskap
+                    HarvesterUnit harvester = harvesterIdentity.GetComponent<HarvesterUnit>();
+                    if (harvester != null)
+                    {
+                        harvester.Cmd_OrderHarvest(crystalIdentity); // Harvester sköter resten
+                        harvestersSent++;
+                    }
+                    else { Debug.LogWarning($"[Server] Unit {harvesterId} is not a HarvesterUnit."); }
+                }
+                else { Debug.LogWarning($"[Server] CmdOrderHarvestersToHarvest: Harvester {harvesterId} not found."); }
+            }
+            // Debug.Log($"[Server] Sent {harvestersSent} harvesters to harvest {targetCrystalNetId}");
+        }
+
+
+        // --- Building Actions ---
+
+        /// <summary>
+        /// [Command] Sells a building owned by the player.
+        /// </summary>
+        [Command]
+        void CmdSellBuilding(NetworkIdentity buildingIdentity)
+        {
+            if (buildingIdentity == null) return;
+            // Validera ägarskap (görs även i Server_Sell)
+            if (buildingIdentity.connectionToClient != connectionToClient)
+            {
+                Debug.LogWarning($"[Server] Player {netId} tried to sell building {buildingIdentity.netId} they don't own.");
+                return;
+            }
+            Building building = buildingIdentity.GetComponent<Building>();
+            // TODO: Kolla om byggnaden FÅR säljas (inte under attack? inte Townhall?)
+            building?.Server_Sell(netId); // Skicka med spelarens ID för säkerhetskoll?
+        }
+
+        // --- Misc Commands ---
+
+        // [Command] void CmdUpgradeTier(NetworkIdentity townhallIdentity) { /* ... anropa Townhall-script ... */ }
 
 
         // --- Server Methods (Called by Server logic) ---
@@ -272,53 +671,43 @@ namespace RTSGAME
         [Server] public void Server_SetColor(Color newColor) { playerColor = newColor; }
         [Server] public void Server_SetName(string newName) { playerName = newName; }
 
+        // --- ClientRpc & TargetRpc ---
+        [ClientRpc] public void RpcAnnounceMessage(string message) { /* TODO: Visa i UI */ UIManager.Instance?.ShowNotification(message); }
+        [TargetRpc] public void Target_NotifyInsufficientResources(string resourceName) { /* TODO: Visa i UI */ Debug.LogWarning($"Not enough {resourceName}!"); UIManager.Instance?.ShowError($"Not enough {resourceName}!"); }
+        [TargetRpc] public void Target_NotifyPlacementFailed(string reason) { /* TODO: Visa i UI */ Debug.LogWarning($"Placement Failed: {reason}"); UIManager.Instance?.ShowError($"Placement Failed: {reason}"); }
+        [TargetRpc] public void Target_NotifyQueueFailed(string reason) { /* TODO: Visa i UI */ Debug.LogWarning($"Queue Failed: {reason}"); UIManager.Instance?.ShowError($"Queue Failed: {reason}"); }
 
-        // --- ClientRpc & TargetRpc Examples ---
-        [ClientRpc] public void RpcAnnounceMessage(string message) { /* ... */ }
-        [TargetRpc] public void Target_NotifyInsufficientResources(string resourceName) { /* ... */ }
-        // Lägg till fler TargetRpc för specifik feedback:
-        // Target_NotifyPlacementFailed(string reason)
-        // Target_NotifyQueueFailed(string reason)
-
-
-        // --- SyncVar Hooks (Called on Clients when value changes) ---
-
-        void OnPlayerNameChanged(string oldName, string newName) { if (isLocalPlayer) gameObject.name = $"LOCAL Player - {newName} ({netId})"; else gameObject.name = $"Remote Player - {newName} ({netId})"; /* Update UI */ }
-        void OnTeamIDChanged(int oldTeamID, int newTeamID) { /* Update UI */ }
-        void OnColorChanged(Color oldColor, Color newColor) { /* Update UI / Unit Colors? */ }
+        // --- SyncVar Hooks (Called on Clients) ---
+        void OnPlayerNameChanged(string oldName, string newName) { if (isLocalPlayer) gameObject.name = $"LOCAL Player - {newName} ({netId})"; else gameObject.name = $"Remote Player - {newName} ({netId})"; uiManager?.UpdatePlayerList(); }
+        void OnTeamIDChanged(int oldTeamID, int newTeamID) { uiManager?.UpdatePlayerList(); /* Uppdatera Scoreboard? */ }
+        void OnColorChanged(Color oldColor, Color newColor) { /* TODO: Uppdatera färg på UI/MiniMap? */ }
         void OnCreditsChanged(int oldCredits, int newCredits) { if (isLocalPlayer) uiManager?.UpdateCreditsDisplay(newCredits); }
-        void OnStatusChanged(PlayerStatus oldStatus, PlayerStatus newStatus) { if (isLocalPlayer) { /* Hantera Defeat etc. */ } /* Uppdatera Scoreboard? */ }
+        void OnStatusChanged(PlayerStatus oldStatus, PlayerStatus newStatus) { if (isLocalPlayer) { /* Hantera Defeat/Victory etc. */ UIManager.Instance?.HandlePlayerStatusChange(newStatus); } uiManager?.UpdatePlayerList(); /* Uppdatera Scoreboard? */ }
 
-        // NYTT: Hooks för Mana Upkeep System
-        void OnManaGenerationChanged(int oldGen, int newGen)
-        {
-            if (isLocalPlayer) manaBarController?.UpdateGeneration(newGen); // Anropa din ManaBarController
-        }
-        void OnManaUpkeepChanged(int oldUpkeep, int newUpkeep)
-        {
-            if (isLocalPlayer) manaBarController?.UpdateUpkeep(newUpkeep); // Anropa din ManaBarController
-        }
-        void OnPowerStatusChanged(bool oldStatus, bool newStatus)
-        {
-            if (isLocalPlayer) manaBarController?.UpdatePowerStatus(newStatus); // Anropa din ManaBarController
-                                                                                // Visa kanske en global varning på skärmen om hasSufficientPower blir false?
-                                                                                // if (isLocalPlayer && !newStatus) uiManager?.ShowPowerWarning(true);
-                                                                                // else if (isLocalPlayer && newStatus) uiManager?.ShowPowerWarning(false);
-        }
-
-        // Behåll om du har Mana som pool
-        // void OnManaChanged(int oldMana, int newMana) { if (isLocalPlayer) uiManager?.UpdateManaDisplay(newMana, maxMana); }
-        // void OnMaxManaChanged(int oldMax, int newMax) { if (isLocalPlayer) uiManager?.UpdateManaDisplay(mana, newMax); }
+        void OnManaGenerationChanged(int oldGen, int newGen) { if (isLocalPlayer) manaBarController?.UpdateGeneration(newGen); }
+        void OnManaUpkeepChanged(int oldUpkeep, int newUpkeep) { if (isLocalPlayer) manaBarController?.UpdateUpkeep(newUpkeep); }
+        void OnPowerStatusChanged(bool oldStatus, bool newStatus) { if (isLocalPlayer) { manaBarController?.UpdatePowerStatus(newStatus); uiManager?.ShowPowerWarning(!newStatus); } }
 
 
         // --- Helper Functions ---
-        private GameObject GetConstructionSitePrefabFor(BuildableData buildingData)
+        private GameObject GetConstructionSitePrefabFor(BuildableData data) // Tar nu data som parameter
         {
-            // TODO: Implementera logik för att hitta rätt ConstructionSite prefab.
-            // Kanske baserat på byggnadens storlek, ras, eller en referens i BuildableData?
-            // Returnera null om ingen hittas.
-            Debug.LogWarning("GetConstructionSitePrefabFor() needs implementation!");
-            return buildingData.ghostPrefab; // Använd ghost som placeholder? Fel prefab dock.
+            if (data == null) return null;
+
+            // *** VIKTIGT: ANTAGANDE OM FÄLTNAMN ***
+            // Antag att din BuildableData-klass (och dess subklasser för byggnader)
+            // har ett fält eller property som heter 'constructionSitePrefab'
+            // som håller prefaben för byggarbetsplatsen.
+            // Ändra 'data.constructionSitePrefab' till ditt faktiska fältnamn!
+
+            GameObject prefab = data.constructionSitePrefab; // Exempel på fältnamn
+
+            if (prefab == null)
+            {
+                Debug.LogError($"[Server] BuildableData '{data.buildableId}' is missing the 'constructionSitePrefab' reference!");
+            }
+            return prefab;
         }
-    }
-}
+
+    } // End class NetworkPlayer
+} // End namespace RTSGAME

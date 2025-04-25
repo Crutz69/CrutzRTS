@@ -23,6 +23,27 @@ namespace RTSGAME
         private List<Transform> availableSpawnPoints = new List<Transform>();
         private List<Transform> allSpawnPoints = new List<Transform>(); // Bra att ha en kopia
 
+        [Header("Game Data")]
+        [SerializeField] private BuildableDatabase buildableDatabase;
+        public BuildableDatabase BuildableDB => buildableDatabase; // Publik property för enkel åtkomst
+
+        // Gör om Instance till en property för att säkerställa åtkomst (om den inte redan är det)
+        public static new RTSNetworkManager singleton { get; private set; } // Använder 'new' om NetworkManager redan har 'singleton'
+
+        public override void Awake() // Se till att Awake sätter singleton korrekt
+        {
+            base.Awake(); // Anropa basklassens Awake
+            if (singleton == null)
+            {
+                singleton = this;
+                // DontDestroyOnLoad(gameObject); // Om NetworkManager ska överleva scenbyten
+            }
+            else if (singleton != this)
+            {
+                Debug.LogWarning("Duplicate RTSNetworkManager instance detected, destroying self.");
+                Destroy(gameObject);
+            }
+        }
         // --- Mirror Overrides ---
 
         public override void OnStartServer()

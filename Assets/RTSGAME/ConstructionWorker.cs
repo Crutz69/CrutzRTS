@@ -5,7 +5,7 @@ using System.Collections; // För Coroutine
 
 namespace RTSGAME
 {
-    public enum WorkerState { Idle, MovingToPosition, MovingToBuild, Building, MovingToRepair, Repairing, MovingToCapture, Capturing }
+    
 
     [RequireComponent(typeof(UnitMovement))]
     public class ConstructionWorker : Unit // Ärver från Unit
@@ -21,6 +21,7 @@ namespace RTSGAME
         // --- State Machine & Target ---
         [SyncVar(hook = nameof(OnStateChangedHook))]
         private WorkerState currentState = WorkerState.Idle; // Använder WorkerState här
+        public WorkerState CurrentState => currentState;
 
         [SyncVar]
         private uint currentTargetNetId = 0;
@@ -257,7 +258,7 @@ namespace RTSGAME
             if (cancelCaptureIfNeeded && currentState == WorkerState.Capturing && currentTargetBuildingCache != null)
             {
                 // Validera att det är VI som capturear innan vi avbryter
-                if (currentTargetBuildingCache.CapturingWorkerNetId == this.netId)
+                if (currentTargetBuildingCache.capturingWorkerNetId == this.netId)
                 {
                     currentTargetBuildingCache.Server_CancelCaptureAttempt($"Worker {netId} stopped/got new order");
                 }
