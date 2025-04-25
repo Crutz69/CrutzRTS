@@ -7,8 +7,8 @@ using System.Collections.Generic; // För List<>
 
 namespace RTSGAME
 {
-    // Enum bör ligga globalt eller i egen fil: CrystalType.cs
-    // public enum CrystalType { None, Green, Blue, Red }
+   
+  
 
     [RequireComponent(typeof(UnitMovement))] // Ärver Unit, som kräver resten
     public class HarvesterUnit : Unit // Ärver från Unit
@@ -21,7 +21,7 @@ namespace RTSGAME
         [SerializeField] private float gatherDuration = 1.5f;
 
         // State Machine (specifik för Harvester)
-        public enum HarvesterState { Idle, MovingToPosition, MovingToCrystal, Harvesting, MovingToRefinery, Depositing }
+      
         [SyncVar(hook = nameof(OnStateChangedHook))]
         private HarvesterState currentState = HarvesterState.Idle;
         public HarvesterState CurrentState => currentState;

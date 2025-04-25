@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace RTSGAME // *** Lades till för att matcha resten av koden ***
 {
-    // Enums (BuildableItemType, BuildingType) är borttagna härifrån - de ska ligga i Enums.cs!
+    
 
     [CreateAssetMenu(fileName = "NewBuildable", menuName = "CrutzRTS/Buildable Data")]
     public class BuildableData : ScriptableObject
