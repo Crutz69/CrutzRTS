@@ -129,7 +129,7 @@ public class BuildingPlacer : MonoBehaviour
         // Säkerställ att det faktiskt är en byggnad vi försöker placera
         if (buildingData == null || buildingData.itemType != BuildableItemType.Building)
         {
-            Debug.LogError($"StartPlacement called with invalid data or non-building item: {buildingData?.buildableName}");
+            Debug.LogError($"StartPlacement called with invalid data or non-building item: {buildingData?.displayName}");
             CancelPlacement();
             return;
         }
@@ -137,7 +137,7 @@ public class BuildingPlacer : MonoBehaviour
         // Kolla om spelaren har råd (enkel klient-check för feedback)
         if (localPlayer != null && localPlayer.credits < buildingData.creditCost)
         {
-            Debug.Log($"Cannot start placement: Not enough credits for {buildingData.buildableName}.");
+            Debug.Log($"Cannot start placement: Not enough credits for {buildingData.displayName}.");
             // TODO: Visa detta i UI? Spela ljud?
             CancelPlacement(); // Avbryt om inte råd
             return;
@@ -154,10 +154,10 @@ public class BuildingPlacer : MonoBehaviour
         }
         else if (buildingData.ghostPrefab == null)
         {
-            Debug.LogWarning($"BuildableData '{buildingData.buildableName}' is missing a Ghost Prefab!");
+            Debug.LogWarning($"BuildableData '{buildingData.displayName}' is missing a Ghost Prefab!");
         }
 
-        Debug.Log($"Started placing: {buildingData.buildableName}");
+        Debug.Log($"Started placing: {buildingData.displayName}");
     }
 
     public void CancelPlacement()

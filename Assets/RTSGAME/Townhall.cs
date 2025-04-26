@@ -83,11 +83,9 @@ namespace RTSGAME // Samma namespace som Building, NetworkPlayer etc.
 
             int nextTier = currentTier + 1;
             int upgradeCostCredits = 500 * nextTier; // Exempel
-            int upgradeCostMana = 100 * nextTier;    // Exempel
 
             if (ResourceManager.Instance != null &&
-                ResourceManager.Instance.Server_TrySpendCredits(requestingPlayer.netId, upgradeCostCredits) &&
-                ResourceManager.Instance.Server_TrySpendMana(requestingPlayer.netId, upgradeCostMana))
+                ResourceManager.Instance.Server_TrySpendCredits(requestingPlayer.netId, upgradeCostCredits))
             {
                 Debug.Log($"Player {requestingPlayer.netId} started upgrading Townhall {BuildingName} to Tier {nextTier}.");
                 // TODO: Starta uppgraderingstimer...
@@ -124,21 +122,6 @@ namespace RTSGAME // Samma namespace som Building, NetworkPlayer etc.
             if (CurrentState != BuildingState.Operational || IsBeingCaptured)
             {
                 Debug.LogWarning($"Townhall {BuildingName} cannot produce worker while not operational or being captured.");
-                return;
-            }
-
-            // TODO: Lägg till eventuell supply/unit cap check här
-
-            // --- Resurskostnad ---
-            int workerCostCredits = 50; // Exempelkostnad
-            int workerCostMana = 0;     // Exempelkostnad
-
-            if (ResourceManager.Instance == null ||
-                !ResourceManager.Instance.Server_TrySpendCredits(requestingPlayer.netId, workerCostCredits) ||
-                !ResourceManager.Instance.Server_TrySpendMana(requestingPlayer.netId, workerCostMana))
-            {
-                Debug.LogWarning($"Player {requestingPlayer.netId} failed to produce worker from Townhall {BuildingName}. Insufficient resources?");
-                // requestingPlayer.Target_NotifyInsufficientResources("Worker Cost");
                 return;
             }
 

@@ -1,14 +1,14 @@
 // Filnamn: UIManager.cs
 using UnityEngine;
-using UnityEngine.UI;            // Behålls för Slider, Button, RawImage, Image etc.
-using TMPro;                     // För TextMeshPro
+using UnityEngine.UI;           // Behålls för Slider, Button, RawImage, Image, Toggle etc.
+using TMPro;                    // För TextMeshPro
 using System.Collections.Generic;
-using System.Linq;               // För FirstOrDefault
-using Mirror;                    // För NetworkClient etc.
+using System.Linq;              // För FirstOrDefault
+using Mirror;                   // För NetworkClient etc.
 
 namespace RTSGAME
 {
-    public class UIManager : MonoBehaviour // Klassen heter nu UIManager
+    public class UIManager : MonoBehaviour
     {
         // --- Singleton ---
         public static UIManager Instance { get; private set; }
@@ -23,17 +23,14 @@ namespace RTSGAME
         [SerializeField] private TextMeshProUGUI creditsText;
         [SerializeField] private ManaBarController manaBarController; // Referens till ManaBarController
 
-        [SyncVar] // Behåll SyncVar om den ska synkas
-        public uint capturingWorkerNetId = 0; // <-- VIKTIGT: Den måste vara 'public'
-
         [Header("Selection Panel")]
         [SerializeField] private GameObject selectionPanel;
         [SerializeField] private TextMeshProUGUI selectionNameText;
         [SerializeField] private Slider selectionHealthSlider;
-        [SerializeField] private Slider selectionProgressBar; // Kan behöva separeras för konstruktion vs produktion?
-        [SerializeField] private GameObject productionQueuePanel; // Panel för produktionskö
-        [SerializeField] private Transform productionQueueSlotsContainer; // Container för kö-ikoner
-        [SerializeField] private GameObject queueItemIconPrefab; // Prefab för kö-ikon
+        [SerializeField] private Slider selectionProgressBar;
+        [SerializeField] private GameObject productionQueuePanel;
+        [SerializeField] private Transform productionQueueSlotsContainer;
+        [SerializeField] private GameObject queueItemIconPrefab;
 
         [Header("Minimap")]
         [SerializeField] private RawImage minimapImage;
@@ -42,6 +39,13 @@ namespace RTSGAME
         [Header("Notifications")]
         [SerializeField] private TextMeshProUGUI notificationText;
         // TODO: Notifikationslogik
+        [Header("Status Indicators")]
+        [Tooltip("UI-element (t.ex. en ikon eller text) som visas vid låg Mana/Power.")]
+        [SerializeField] private GameObject powerWarningIndicator;
+        [Tooltip("Panel som visas när spelaren har förlorat.")]
+        [SerializeField] private GameObject defeatPanel;
+        [Tooltip("Panel som visas när spelaren har vunnit.")]
+        [SerializeField] private GameObject victoryPanel;
 
         [Header("Build Menu System")]
         [SerializeField] private GameObject buildCategoryPanel;
@@ -52,15 +56,18 @@ namespace RTSGAME
         [SerializeField] private Transform buildingCountPanelContainer;
         [SerializeField] private GameObject buildingIconButtonPrefab;
 
+        [Header("UI Buttons")]
+        [SerializeField] private Toggle buildMenuToggle; // Huvud-Togglen för hela menyn
+
         [Header("External System References")]
         [SerializeField] private BuildingPlacer buildingPlacer;
 
         // --- Intern State för Byggmeny ---
         private BuildingType selectedCategoryType = BuildingType.None;
-        // ÄNDRAD: Håller nu koll på en ProductionBuilding specifikt om det är en sådan som är aktiv för kön
         private ProductionBuilding selectedProductionBuildingInstance = null;
-        private Building selectedBuildingInstance = null; // Generell vald byggnad (kan vara samma som ovan)
-        private Dictionary<BuildingType, Button> categoryButtonsDict = new Dictionary<BuildingType, Button>();
+        private Building selectedBuildingInstance = null;
+        // *** ÄNDRAD: Lagrar nu Toggle istället för Button ***
+        private Dictionary<BuildingType, Toggle> categoryButtonsDict = new Dictionary<BuildingType, Toggle>();
         private BuildingIconButtonHandler highlightedIconButton = null;
 
         // --- Unity Metoder ---
@@ -68,12 +75,6 @@ namespace RTSGAME
         {
             if (Instance == null) Instance = this;
             else { Destroy(gameObject); return; }
-
-            if (selectionPanel) selectionPanel.SetActive(false);
-            if (buildCategoryPanel) buildCategoryPanel.SetActive(false);
-            if (buildablesPanel) buildablesPanel.SetActive(false);
-            if (buildingCountPanel) buildingCountPanel.SetActive(false);
-            if (productionQueuePanel) productionQueuePanel.SetActive(false);
         }
 
         void Start()
@@ -81,12 +82,28 @@ namespace RTSGAME
             if (SelectionManager.Instance != null) { SelectionManager.Instance.OnSelectionChanged += UpdateSelectionPanel; }
             else { Debug.LogWarning("SelectionManager not found during UIManager Start."); }
             StartCoroutine(FindLocalPlayerRoutine());
-            InitializeCategoryButtons();
+            InitializeCategoryButtons(); // Anropar den uppdaterade metoden nedan
+
+            // Koppla huvud-Togglen
+            if (buildMenuToggle != null)
+            {
+                buildMenuToggle.onValueChanged.AddListener(SetBuildMenuVisibility);
+                SetBuildMenuVisibility(buildMenuToggle.isOn); // Sätt initialt state
+            }
+            else
+            {
+                Debug.LogWarning("BuildMenuToggle reference not set in UIManager!");
+                // Dölj menyerna manuellt om ingen huvud-Toggle finns
+                buildCategoryPanel?.SetActive(false);
+                buildablesPanel?.SetActive(false);
+                buildingCountPanel?.SetActive(false);
+            }
         }
 
         void OnDestroy()
         {
             if (SelectionManager.Instance != null) { SelectionManager.Instance.OnSelectionChanged -= UpdateSelectionPanel; }
+            if (buildMenuToggle != null) { buildMenuToggle.onValueChanged.RemoveListener(SetBuildMenuVisibility); }
             if (Instance == this) Instance = null;
         }
 
@@ -99,17 +116,26 @@ namespace RTSGAME
                 Debug.Log("UIManager found Local Player.");
                 UpdateCreditsDisplay(localPlayer.credits);
                 UpdateManaRelatedUI(localPlayer.manaGeneration, localPlayer.manaUpkeep, localPlayer.hasSufficientPower);
+                // Kör en initial UI-uppdatering för byggnader när spelaren hittats
+                UpdateOwnedBuildingUI();
             }
-            else if (NetworkClient.active) { Debug.LogWarning("UIManager could not find Local Player."); }
+            else if (NetworkClient.active) { Debug.LogWarning("UIManager could not find Local Player after waiting."); }
         }
 
         // --- Metoder för att sätta referenser och uppdatera UI ---
-
-        public void SetLocalPlayer(NetworkPlayer player) { localPlayer = player; }
+        public void SetLocalPlayer(NetworkPlayer player)
+        {
+            localPlayer = player;
+            if (localPlayer != null)
+            {
+                UpdateCreditsDisplay(localPlayer.credits);
+                UpdateManaRelatedUI(localPlayer.manaGeneration, localPlayer.manaUpkeep, localPlayer.hasSufficientPower);
+                UpdateOwnedBuildingUI(); // Uppdatera byggnads-UI när spelaren kopplas
+            }
+        }
         public void UpdateCreditsDisplay(int amount) { if (creditsText != null) creditsText.text = $"{amount}"; }
         public void UpdateManaRelatedUI(int generation, int upkeep, bool hasPower) { manaBarController?.UpdateGeneration(generation); manaBarController?.UpdateUpkeep(upkeep); manaBarController?.UpdatePowerStatus(hasPower); }
 
-        // *** VIKTIG ÄNDRING HÄR ***
         public void UpdateSelectionPanel()
         {
             if (selectionPanel == null || SelectionManager.Instance == null) return;
@@ -120,125 +146,89 @@ namespace RTSGAME
                 GameObject selectedObj = selection[0];
                 selectionPanel.SetActive(true);
 
-                // Återställ / standardvärden
                 string nameToShow = "Selected Object";
                 float currentHealth = 0f, maxHealth = 1f;
-                float progressToShow = 0f; // För progress bar (konstruktion/produktion)
+                float progressToShow = 0f;
                 bool showProgress = false;
-                // För produktionskö
                 List<string> queueToShow = null;
                 string buildingItemId = null;
-                float buildingProgress = 0f;
-                BuildPauseState pauseState = BuildPauseState.None; // ANVÄNDER ENUM FRÅN Enums.cs
+                // float buildingProgress = 0f; // Täcks av progressToShow
+                BuildPauseState pauseState = BuildPauseState.None;
                 bool showProduction = false;
 
-                // *** NY LOGIK: Kolla först om det är en produktionsbyggnad ***
+                // Återställ valda instanser (UI-val)
+                selectedBuildingInstance = null;
+                selectedProductionBuildingInstance = null;
+
                 if (selectedObj.TryGetComponent<ProductionBuilding>(out ProductionBuilding prodBuilding))
                 {
-                    selectedBuildingInstance = prodBuilding; // Spara som generell byggnad också
-                    selectedProductionBuildingInstance = prodBuilding; // Spara specifikt som produktionsbyggnad
-
-                    // Hämta grundinfo från Building/ProductionBuilding
+                    selectedBuildingInstance = prodBuilding;
+                    selectedProductionBuildingInstance = prodBuilding;
                     nameToShow = prodBuilding.BuildingName;
-                    if(prodBuilding.healthComponent != null)
-                    {
-                        currentHealth = prodBuilding.CurrentHealth;
-                        maxHealth = prodBuilding.MaxHealth;
-                    }
+                    if (prodBuilding.healthComponent != null) { currentHealth = prodBuilding.CurrentHealth; maxHealth = prodBuilding.MaxHealth; }
 
-                    // Visa progress bar för konstruktion ELLER produktion? Behöver mer logik här.
-                    if (prodBuilding.CurrentState == BuildingState.Constructing)
-                    {
-                        progressToShow = prodBuilding.ConstructionProgress;
-                        showProgress = true;
-                    }
-                    else if (!string.IsNullOrEmpty(prodBuilding.syncCurrentlyBuildingId)) // Visa produktionsprogress om något byggs
-                    {
-                        progressToShow = prodBuilding.syncCurrentBuildProgress;
-                        showProgress = true;
-                    }
+                    if (prodBuilding.CurrentState == BuildingState.Constructing) { progressToShow = prodBuilding.ConstructionProgress; showProgress = true; }
+                    else if (!string.IsNullOrEmpty(prodBuilding.syncCurrentlyBuildingId)) { progressToShow = prodBuilding.syncCurrentBuildProgress; showProgress = true; }
                     else { showProgress = false; }
 
-
-                    // Hämta produktionskö-info direkt från prodBuilding
-                    if (prodBuilding.CanQueueItems()) // Metoden finns nu här
+                    if (prodBuilding.CanQueueItems())
                     {
                         showProduction = true;
                         queueToShow = new List<string>(prodBuilding.syncBuildQueueIds);
                         buildingItemId = prodBuilding.syncCurrentlyBuildingId;
-                        buildingProgress = prodBuilding.syncCurrentBuildProgress; // Redundant med progressToShow? Se ovan.
-                        pauseState = prodBuilding.syncCurrentPauseState; // Läs SyncVar
+                        pauseState = prodBuilding.syncCurrentPauseState;
                     }
                 }
-                // *** Om inte ProductionBuilding, kolla om det är en vanlig Building ***
                 else if (selectedObj.TryGetComponent<Building>(out Building building))
                 {
-                    selectedBuildingInstance = building;
-                    selectedProductionBuildingInstance = null; // Inte en produktionsbyggnad
-
+                    selectedBuildingInstance = building; // Spara referens
                     nameToShow = building.BuildingName;
-                     if(building.healthComponent != null)
-                    {
-                        currentHealth = building.CurrentHealth;
-                        maxHealth = building.MaxHealth;
-                    }
-
-                    // Visa progress bar endast för konstruktion
-                    if (building.CurrentState == BuildingState.Constructing)
-                    {
-                         progressToShow = building.ConstructionProgress;
-                         showProgress = true;
-                    } else { showProgress = false; }
-
-
-                    showProduction = false; // Vanliga byggnader kan inte producera
+                    if (building.healthComponent != null) { currentHealth = building.CurrentHealth; maxHealth = building.MaxHealth; }
+                    if (building.CurrentState == BuildingState.Constructing) { progressToShow = building.ConstructionProgress; showProgress = true; } else { showProgress = false; }
+                    showProduction = false;
                 }
-                // *** Kolla efter enhet eller annat? ***
-                else if (selectedObj.TryGetComponent<Unit>(out Unit unit)) // Antag att du har en Unit-klass
+                else if (selectedObj.TryGetComponent<Unit>(out Unit unit))
                 {
-                    selectedBuildingInstance = null;
-                    selectedProductionBuildingInstance = null;
-
-                    nameToShow = unit.UnitDisplayName; // Antag att Unit har UnitName property
-                    // Hämta hälsa från Unit...
+                    nameToShow = unit.UnitDisplayName;
+                    currentHealth = unit.CurrentHealth;
+                    maxHealth = unit.MaxHealth;
                     showProduction = false;
                     showProgress = false;
                 }
-                else // Okänt objekt valt
+                else // Okänt objekt
                 {
-                     selectedBuildingInstance = null;
-                    selectedProductionBuildingInstance = null;
+                    nameToShow = selectedObj.name; // Fallback
+                    if (selectedObj.TryGetComponent<Health>(out Health health)) { currentHealth = health.CurrentHealth; maxHealth = health.MaxHealth; }
                     showProduction = false;
                     showProgress = false;
                 }
 
-                // Uppdatera UI-element
                 selectionNameText.text = nameToShow;
                 selectionHealthSlider.value = (maxHealth > 0) ? (currentHealth / maxHealth) : 0;
+                selectionHealthSlider.gameObject.SetActive(maxHealth > 0);
                 selectionProgressBar.gameObject.SetActive(showProgress);
-                if(showProgress) selectionProgressBar.value = progressToShow;
+                if (showProgress) selectionProgressBar.value = progressToShow;
 
-                UpdateProductionQueuePanel(showProduction, queueToShow, buildingItemId, buildingProgress, pauseState);
+                UpdateProductionQueuePanel(showProduction, queueToShow, buildingItemId, progressToShow, pauseState);
             }
-            else if (selection.Count > 1) // Flera objekt valda
+            else if (selection.Count > 1)
             {
                 selectionPanel.SetActive(true);
                 selectionNameText.text = $"{selection.Count} Objects Selected";
-                selectionHealthSlider.value = 1; // Eller visa genomsnitt/lägsta?
-                 selectionProgressBar.gameObject.SetActive(false);
-                UpdateProductionQueuePanel(false, null, null, 0f, BuildPauseState.None); // Göm kön
-                 selectedBuildingInstance = null;
-                 selectedProductionBuildingInstance = null;
+                selectionHealthSlider.gameObject.SetActive(false);
+                selectionProgressBar.gameObject.SetActive(false);
+                UpdateProductionQueuePanel(false, null, null, 0f, BuildPauseState.None);
+                selectedBuildingInstance = null;
+                selectedProductionBuildingInstance = null;
             }
             else // Inget valt
             {
                 selectionPanel.SetActive(false);
-                 selectedBuildingInstance = null;
-                 selectedProductionBuildingInstance = null;
+                selectedBuildingInstance = null;
+                selectedProductionBuildingInstance = null;
             }
         }
 
-        // *** ANVÄNDER BuildPauseState från Enums.cs ***
         private void UpdateProductionQueuePanel(bool show, List<string> queueIds, string currentlyBuildingId, float progress, BuildPauseState pauseState)
         {
             if (productionQueuePanel == null || productionQueueSlotsContainer == null || queueItemIconPrefab == null || buildableDatabase == null) return;
@@ -246,24 +236,19 @@ namespace RTSGAME
             productionQueuePanel.SetActive(show);
             if (!show) return;
 
-            // Rensa gamla ikoner
             foreach (Transform child in productionQueueSlotsContainer) Destroy(child.gameObject);
 
-            // Visa ikon för det som byggs aktivt
             if (!string.IsNullOrEmpty(currentlyBuildingId))
             {
                 BuildableData data = buildableDatabase.GetDataById(currentlyBuildingId);
                 if (data != null)
                 {
                     GameObject iconGO = Instantiate(queueItemIconPrefab, productionQueueSlotsContainer);
-                    // TODO: Konfigurera ikon för aktiv + progress/paus
                     Image img = iconGO.GetComponentInChildren<Image>(); if (img) img.sprite = data.icon;
-                    // Exempel: Lägg till en Slider eller fyllnads-Image för progress
-                    // Exempel: Ändra färg/lägg till ikon om pauseState != BuildPauseState.None
+                    // TODO: Hantera progress/paus-visualisering för den aktiva ikonen
                 }
             }
 
-            // Visa ikoner för det som är i kö
             if (queueIds != null)
             {
                 foreach (string id in queueIds)
@@ -272,51 +257,71 @@ namespace RTSGAME
                     if (data != null)
                     {
                         GameObject iconGO = Instantiate(queueItemIconPrefab, productionQueueSlotsContainer);
-                        // TODO: Konfigurera ikon för köad + ev. högerklick för cancel
                         Image img = iconGO.GetComponentInChildren<Image>(); if (img) img.sprite = data.icon;
-                        // Lägg till knapp-komponent och event för att avbryta? Needs Command på spelaren.
+                        // TODO: Lägg till logik för att kunna högerklicka och avbryta
                     }
                 }
             }
         }
 
-        public void ShowNotification(string message)
+        public void ShowNotification(string message) { /* ... (som innan) ... */ }
+
+        // Styr synligheten baserat på huvud-Toggle
+        public void SetBuildMenuVisibility(bool isVisible)
         {
-            if (notificationText) notificationText.text = message; // TODO: Mer avancerad hantering
-            Debug.Log($"UI Notification: {message}");
+            // Debug.Log($"Setting Build Menu Visibility: {isVisible}");
+            if (buildCategoryPanel) buildCategoryPanel.SetActive(isVisible);
+            if (buildablesPanel) buildablesPanel.SetActive(isVisible);
+            if (!isVisible && buildingCountPanel) buildingCountPanel.SetActive(false); // Dölj alltid count när menyn stängs
+
+            if (isVisible)
+            {
+                // Välj en default-kategori eller återvälj senast valda
+                if (selectedCategoryType == BuildingType.None)
+                {
+                    SelectCategory(BuildingType.Building); // Anpassa startkategori
+                }
+                else
+                {
+                    SelectCategory(selectedCategoryType); // Uppdatera med aktuell data
+                }
+            }
+            else
+            {
+                RemoveHighlightFromBuildingIcon();
+            }
         }
 
         // --- Byggmeny Funktioner ---
 
+        // Anropas när en kategori-Toggle klickas (och blir true)
         public void SelectCategory(BuildingType category)
         {
-            if (buildCategoryPanel == null || buildablesPanel == null) return;
+            if (buildCategoryPanel == null || buildablesPanel == null) { return; } // Tidig exit om paneler saknas
+
+            // Paneler bör redan vara synliga om denna anropas via en klickad Toggle i en synlig meny
+
+            // 1. Sätt ny kategori och återställ val
             selectedCategoryType = category;
-            selectedBuildingInstance = null; // Nollställ vald instans när kategori byts
+            selectedBuildingInstance = null;
             selectedProductionBuildingInstance = null;
             RemoveHighlightFromBuildingIcon();
 
-            buildCategoryPanel.SetActive(true);
-            buildablesPanel.SetActive(true);
-            HighlightCategoryButton(category);
-            UpdateBuildablesPanel(selectedCategoryType);
+            // 2. Highlighta kategori-knappen (behövs inte om Toggle-grafiken sköter det)
+            // HighlightCategoryButton(category); // Kan tas bort
 
-            // Hämta byggnadsdata och uppdatera count display
-            var buildingsOwned = GetCurrentBuildingData(); // TODO: Implementera denna!
-            UpdateBuildingCountDisplay(buildingsOwned); // Denna sätter selectedBuildingInstance/selectedProductionBuildingInstance om bara en finns
-
-            // Uppdatera byggknapparna igen baserat på *vilken specifik byggnad* som nu är aktiv (om någon)
-            UpdateBuildablesButtonStates();
+            // 3. Anropa central UI-uppdatering
+            UpdateOwnedBuildingUI();
         }
 
-
+        // Fyller på panelen med byggbara objekt för vald kategori
         public void UpdateBuildablesPanel(BuildingType category)
         {
             if (slotsContainer == null || buildableItemButtonPrefab == null || buildableDatabase == null) return;
             foreach (Transform child in slotsContainer) Destroy(child.gameObject);
 
             List<BuildableData> itemsToShow = buildableDatabase.GetBuildablesForCategory(category);
-            // TODO: Filtrera itemsToShow baserat på unlocks/prerequisites
+            // TODO: Filtrera itemsToShow baserat på forskning/krav
 
             foreach (BuildableData data in itemsToShow)
             {
@@ -325,25 +330,24 @@ namespace RTSGAME
                 if (buttonUI != null)
                 {
                     buttonUI.Initialize(data, this);
-                    // Uppdatera direkt vid skapande baserat på aktuell aktiv byggnad
-                    buttonUI.UpdateState(GetActiveBuildingForQueue()); // Använder nu metoden som hittar ProductionBuilding
+                    buttonUI.UpdateState(GetActiveBuildingForQueue()); // Uppdatera direkt
                 }
-                else { Debug.LogWarning($"BuildableItemButtonUI script missing on {itemGO.name}"); }
             }
         }
 
-        // Hjälpmetod för att uppdatera alla byggknappars state
+        // Uppdaterar status för alla knappar i buildablesPanel baserat på vald byggnad
         private void UpdateBuildablesButtonStates()
         {
-             if (slotsContainer == null) return;
-             ProductionBuilding activeBuilding = GetActiveBuildingForQueue();
-             foreach (Transform child in slotsContainer)
-             {
-                 BuildableItemButtonUI buttonUI = child.GetComponent<BuildableItemButtonUI>();
-                 buttonUI?.UpdateState(activeBuilding);
-             }
+            if (slotsContainer == null) return;
+            ProductionBuilding activeBuilding = GetActiveBuildingForQueue();
+            foreach (Transform child in slotsContainer)
+            {
+                BuildableItemButtonUI buttonUI = child.GetComponent<BuildableItemButtonUI>();
+                buttonUI?.UpdateState(activeBuilding);
+            }
         }
 
+        // Visar ikoner för ägda byggnader av vald kategori (om fler än 1)
         public void UpdateBuildingCountDisplay(Dictionary<BuildingType, List<Building>> buildingsOwned)
         {
             if (buildingCountPanelContainer == null || buildingIconButtonPrefab == null || buildingCountPanel == null) return;
@@ -351,174 +355,299 @@ namespace RTSGAME
             highlightedIconButton = null;
             List<Building> buildingsOfType = null;
 
-            // Nollställ innan vi ev. sätter dem
-            selectedBuildingInstance = null;
+            selectedBuildingInstance = null; // Nollställ alltid innan ny koll
             selectedProductionBuildingInstance = null;
 
-            if (selectedCategoryType != BuildingType.None && buildingsOwned != null && buildingsOwned.TryGetValue(selectedCategoryType, out buildingsOfType) && buildingsOfType.Count > 0)
-            {
-                 int count = buildingsOfType.Count;
-                 bool showPanel = count > 1; // Visa bara panelen om det finns FLER än en att välja mellan
-                 buildingCountPanel.SetActive(showPanel);
+            bool categoryHasOwnedBuildings = selectedCategoryType != BuildingType.None
+                                             && buildingsOwned != null
+                                             && buildingsOwned.TryGetValue(selectedCategoryType, out buildingsOfType)
+                                             && buildingsOfType.Count > 0;
 
-                 if(showPanel)
-                 {
-                      for (int i = 0; i < count; i++)
-                      {
-                           GameObject iconGO = Instantiate(buildingIconButtonPrefab, buildingCountPanelContainer);
-                           BuildingIconButtonHandler iconHandler = iconGO.GetComponent<BuildingIconButtonHandler>();
-                           if (iconHandler != null)
-                           {
-                                iconHandler.AssociatedBuilding = buildingsOfType[i];
-                                // Försök sätta ikon från byggnadens data om möjligt
-                                Image iconImage = iconGO.transform.Find("Icon")?.GetComponent<Image>();
-                                if (iconImage) {
-                                    // Försök få data från en BuildableData via ett ID på byggnaden? Kräver mer info.
-                                    // För nu, använd kategorispriten.
-                                    iconImage.sprite = GetSpriteForBuildingType(selectedCategoryType); // TODO: Implementera bättre?
-                                }
-                                // Ingen highlightning här, det sker när man klickar
-                           }
-                      }
-                      // Om panelen visas, välj den FÖRSTA i listan som standard? Eller ingen?
-                      // selectedBuildingInstance = buildingsOfType[0]; // Designval
-                      // selectedProductionBuildingInstance = buildingsOfType[0] as ProductionBuilding; // Designval
-                 }
-                 else // count == 1
-                 {
-                     // Om det bara finns en, välj den automatiskt
-                     selectedBuildingInstance = buildingsOfType[0];
-                     selectedProductionBuildingInstance = buildingsOfType[0] as ProductionBuilding; // Försök casta, blir null om det inte är en prod.byggnad
-                 }
+            if (categoryHasOwnedBuildings)
+            {
+                int count = buildingsOfType.Count;
+                bool showPanel = count > 1;
+                buildingCountPanel.SetActive(showPanel);
+
+                if (showPanel)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        GameObject iconGO = Instantiate(buildingIconButtonPrefab, buildingCountPanelContainer);
+                        BuildingIconButtonHandler iconHandler = iconGO.GetComponent<BuildingIconButtonHandler>();
+                        if (iconHandler != null && buildingsOfType[i] != null)
+                        {
+                            iconHandler.AssociatedBuilding = buildingsOfType[i];
+                            Image iconImage = iconGO.transform.Find("Icon")?.GetComponent<Image>();
+                            if (iconImage) { iconImage.sprite = GetSpriteForBuilding(buildingsOfType[i]); }
+                        }
+                        else if (buildingsOfType[i] == null) { Destroy(iconGO); } // Ignorera null byggnader
+                        else { Destroy(iconGO); } // Ignorera om prefab saknar script
+                    }
+                    // Ingen förvald byggnad när panelen visas
+                }
+                else // count == 1
+                {
+                    selectedBuildingInstance = buildingsOfType[0];
+                    selectedProductionBuildingInstance = buildingsOfType[0] as ProductionBuilding;
+                }
             }
-            else // Ingen byggnad av vald typ ägs
+            else
             {
                 buildingCountPanel.SetActive(false);
             }
-             // Uppdatera byggknapparnas state baserat på den ev. autovalda byggnaden
-             //UpdateBuildablesButtonStates(); // Görs nu från SelectCategory efter denna körts
         }
 
-        // *** ÄNDRAD: Försöker nu hitta ProductionBuilding ***
+        // Anropas när en knapp i buildablesPanel klickas
         public void OnBuildableItemClicked(BuildableData itemData)
         {
-            if (localPlayer == null) { FindLocalPlayerRoutine(); if (localPlayer == null) { Debug.LogError("Local player not found!"); return; } }
+            if (localPlayer == null) { Debug.LogError("Local player not found!"); return; }
 
             if (itemData.itemType == BuildableItemType.Building)
             {
-                if (buildingPlacer != null) { buildingPlacer.StartPlacement(itemData); CloseBuildMenus(); }
+                if (buildingPlacer != null)
+                {
+                    CloseBuildMenus(); // Stäng menyn innan placering
+                    buildingPlacer.StartPlacement(itemData);
+                }
                 else { Debug.LogError("BuildingPlacer reference not set!"); }
             }
             else if (itemData.itemType == BuildableItemType.Unit || itemData.itemType == BuildableItemType.Upgrade)
             {
-                // Försök hitta en aktiv produktionsbyggnad
                 ProductionBuilding targetBuilding = GetActiveBuildingForQueue();
                 if (targetBuilding != null)
                 {
-                    // Skicka Command till spelaren att köa objektet vid den specifika byggnaden
-                    localPlayer.CmdQueueItem(targetBuilding.netId, itemData.buildableId, 1); // Antag CmdQueueItem finns på NetworkPlayer
-                    // Ge omedelbar feedback till spelaren? (Kanske lägg till i UI innan server svarar?)
+                    localPlayer.CmdQueueItem(targetBuilding.netId, itemData.buildableId, 1);
                 }
-                else { ShowNotification("No suitable production building selected!"); Debug.LogWarning("No production building selected/available to queue the item at!"); }
+                else { ShowNotification("No suitable production building selected!"); }
             }
         }
 
-        // Anropas av BuildingIconButtonHandler vid enkelklick
+        // Anropas när en ikon i buildingCountPanel klickas
         public void SelectBuildingInstance(Building instance, BuildingIconButtonHandler clickedHandler)
         {
             if (selectedBuildingInstance == instance) return; // Ingen ändring
-
             RemoveHighlightFromBuildingIcon(); // Ta bort gammal highlight
 
             selectedBuildingInstance = instance;
-            selectedProductionBuildingInstance = instance as ProductionBuilding; // Försök casta
+            selectedProductionBuildingInstance = instance as ProductionBuilding;
             highlightedIconButton = clickedHandler;
             highlightedIconButton?.SetHighlightActive(true); // Sätt ny highlight
 
-            // Uppdatera byggknapparna så de reflekterar den nya valda byggnadens status/kö
-            UpdateBuildablesButtonStates();
+            UpdateBuildablesButtonStates(); // Uppdatera byggknappar
         }
 
+        // Anropas av hotkeys etc.
         public void ToggleBuildMenu()
         {
-            bool shouldBeActive = !(buildCategoryPanel?.activeSelf ?? false);
-            buildCategoryPanel?.SetActive(shouldBeActive);
-            buildablesPanel?.SetActive(shouldBeActive);
-            // buildingCountPanel aktiveras/avaktiveras av UpdateBuildingCountDisplay
-
-            if (shouldBeActive)
+            if (buildMenuToggle != null)
             {
-                // Välj en default-kategori om ingen är vald, annars återvälj senaste
-                if (selectedCategoryType == BuildingType.None) { SelectCategory(BuildingType.Building); } // Välj en rimlig startkategori
-                else { SelectCategory(selectedCategoryType); } // Uppdatera med nuvarande data
+                buildMenuToggle.isOn = !buildMenuToggle.isOn; // Låt Toggle-eventet sköta resten
             }
             else
             {
-                CloseBuildMenus();
+                bool currentVisibility = buildCategoryPanel != null && buildCategoryPanel.activeSelf;
+                SetBuildMenuVisibility(!currentVisibility); // Fallback
             }
         }
 
+        // Stänger menyerna
         public void CloseBuildMenus()
         {
-            buildCategoryPanel?.SetActive(false);
-            buildablesPanel?.SetActive(false);
-            buildingCountPanel?.SetActive(false);
-            RemoveHighlightFromBuildingIcon();
-            // Behåll selectedCategoryType? Ja, troligen bäst.
+            SetBuildMenuVisibility(false);
+            if (buildMenuToggle != null && buildMenuToggle.isOn)
+            {
+                buildMenuToggle.SetIsOnWithoutNotify(false);
+            }
         }
 
         // --- Diverse Hjälpfunktioner ---
-        private void InitializeCategoryButtons() { /* TODO */ Debug.LogWarning("InitializeCategoryButtons needs implementation!"); }
-        private void HighlightCategoryButton(BuildingType category) { /* TODO */ Debug.Log($"Highlighting category: {category}"); }
-        private void HighlightIconButton(BuildingIconButtonHandler handlerToHighlight) { highlightedIconButton = handlerToHighlight; highlightedIconButton?.SetHighlightActive(true); }
-        private void RemoveHighlightFromBuildingIcon() { highlightedIconButton?.SetHighlightActive(false); highlightedIconButton = null; }
 
-        // *** KRITISKA FUNKTIONER ATT IMPLEMENTERA ***
-        private Dictionary<BuildingType, List<Building>> GetCurrentBuildingData()
+        // *** ÄNDRAD: Hanterar nu Toggle istället för Button ***
+        private void InitializeCategoryButtons()
         {
-            if (localPlayer == null) return new Dictionary<BuildingType, List<Building>>();
-            // TODO: HÄMTA SPELARENS BYGGNADER HÄR!
-            // Antag att NetworkPlayer har en lista: List<Building> ownedBuildings;
-            // Exempel: return GroupBuildingsByType(localPlayer.ownedBuildings);
-            Debug.LogWarning("GetCurrentBuildingData() needs real implementation!");
-            return new Dictionary<BuildingType, List<Building>>(); // Returnera tom dict tills implementerad
-        }
-
-        // *** ÄNDRAD: Returnerar nu ProductionBuilding ***
-        public ProductionBuilding GetActiveBuildingForQueue()
-        {
-            // Prioritera den specifikt valda ProductionBuilding-instansen
-            if (selectedProductionBuildingInstance != null)
+            if (buildCategoryPanel == null)
             {
-                return selectedProductionBuildingInstance;
+                Debug.LogError("BuildCategoryPanel reference not set in UIManager!");
+                return;
             }
 
-            // Fallback: Om ingen specifik är vald via ikonerna, men EN produktionsbyggnad av vald kategori är vald via SelectionManager?
-            // Detta är lite oklart hur det ska fungera. Kanske räcker det med selectedProductionBuildingInstance?
-            // Eller om bara EN byggnad av rätt typ ägs totalt?
+            // Använder nu Dictionary<BuildingType, Toggle>
+            categoryButtonsDict.Clear();
+
+            foreach (CategoryButtonHelper helper in buildCategoryPanel.GetComponentsInChildren<CategoryButtonHelper>())
+            {
+                Toggle toggle = helper.GetComponent<Toggle>(); // Hämta Toggle
+                BuildingType category = helper.categoryToSet;
+
+                if (toggle != null && category != BuildingType.None)
+                {
+                    toggle.onValueChanged.RemoveAllListeners(); // Rensa gamla
+                    // Lägg till lyssnare som anropar SelectCategory ENDAST när toggle slås PÅ
+                    toggle.onValueChanged.AddListener((isOn) => {
+                        if (isOn)
+                        {
+                            SelectCategory(category);
+                        }
+                    });
+                    categoryButtonsDict[category] = toggle; // Spara Toggle i dictionaryn
+                }
+                else { Debug.LogWarning($"CategoryButtonHelper on {helper.gameObject.name} missing Toggle or Category is None."); }
+            }
+        }
+
+        // *** UPPDATERAD: Tar nu Dictionary som argument ***
+        private void UpdateCategoryButtonStates(Dictionary<BuildingType, List<Building>> buildingsOwned)
+        {
+            if (categoryButtonsDict == null) return;
+
+            foreach (var kvp in categoryButtonsDict)
+            {
+                BuildingType category = kvp.Key;
+                Toggle toggle = kvp.Value; // Hämta Toggle istället för Button
+                if (toggle == null) continue;
+
+                bool isActive = buildingsOwned.ContainsKey(category) && buildingsOwned[category].Count > 0;
+
+                toggle.interactable = isActive; // Sätt interaktivitet på Toggle
+
+                // Uppdatera visuellt (t.ex. Target Graphic)
+                Image img = toggle.targetGraphic as Image; // Toggle har targetGraphic direkt
+                if (img != null)
+                {
+                    img.color = isActive ? Color.white : Color.grey; // Enkel färgändring
+                }
+                // Notera: Den visuella skillnaden mellan på/av hanteras av Togglen's
+                // "Graphic" (under Toggle Transition) och dess inställningar i Inspektorn.
+            }
+        }
+
+        // *** NY: Central UI-uppdateringsmetod ***
+        public void UpdateOwnedBuildingUI()
+        {
+            var buildingsOwned = GetCurrentBuildingData(); // Hämtar och grupperar
+            UpdateCategoryButtonStates(buildingsOwned);   // Uppdaterar kategoriknappars state
+            UpdateBuildingCountDisplay(buildingsOwned);   // Uppdaterar listan med byggnadsikoner
+            UpdateBuildablesButtonStates();               // Uppdaterar knapparna i buildablesPanel
+        }
+
+
+        // *** BORTKOMMENTERAD/ERSATT: Behövs inte för grundläggande highlightning med Toggles ***
+        // private void HighlightCategoryButton(BuildingType category)
+        // {
+        //     // Denna logik sköts nu primärt av Toggle-komponentens visuella inställningar
+        //     // (Target Graphic, Graphic, Selected Color etc.) som sätts i Inspektorn.
+        //     // Man kan lägga till extra logik här om man vill göra mer avancerade saker.
+        // }
+
+        private void RemoveHighlightFromBuildingIcon()
+        {
+            highlightedIconButton?.SetHighlightActive(false);
+            highlightedIconButton = null;
+        }
+
+        // *** KRITISK FUNKTION ATT IMPLEMENTERA ***
+        private Dictionary<BuildingType, List<Building>> GetCurrentBuildingData()
+        {
+            var groupedBuildings = new Dictionary<BuildingType, List<Building>>();
+            if (localPlayer == null) return groupedBuildings;
+
+            List<Building> ownedBuildings = localPlayer.GetOwnedBuildings(); // Anropar metoden på NetworkPlayer
+
+            if (ownedBuildings == null) return groupedBuildings;
+
+            foreach (Building building in ownedBuildings)
+            {
+                if (building == null) continue;
+                BuildingType category = GetCategoryForBuilding(building); // Anropa hjälpmetod
+                if (category != BuildingType.None)
+                {
+                    if (!groupedBuildings.ContainsKey(category))
+                    {
+                        groupedBuildings[category] = new List<Building>();
+                    }
+                    groupedBuildings[category].Add(building);
+                }
+            }
+            return groupedBuildings;
+        }
+
+        // *** KRITISK FUNKTION ATT IMPLEMENTERA ***
+        private BuildingType GetCategoryForBuilding(Building building)
+        {
+            if (building == null) return BuildingType.None;
+            // --- IMPLEMENTERA DIN LOGIK HÄR ---
+            // Alternativ 1: Hämta från Building-objektet direkt
+            // return building.Category; // Om Building har en Category-property
+
+            // Alternativ 2: Hämta från BuildableData via ID
+            // string buildableId = building.buildableId; // Om Building har ett buildableId
+            // BuildableData data = buildableDatabase?.GetDataById(buildableId);
+            // return data?.category ?? BuildingType.None;
+
+            // Fallback/Placeholder: Gissa baserat på klassnamn
+            if (building is ProductionBuilding)
+            {
+                if (building.GetType().Name.Contains("Barracks")) return BuildingType.Infantry;
+                if (building.GetType().Name.Contains("Stable")) return BuildingType.Cavalry;
+                if (building.GetType().Name.Contains("Airfield")) return BuildingType.Flying; // Exempel
+                                                                                              // Fler...
+                return BuildingType.Building; // Generell produktionsbyggnad?
+            }
+            if (building.GetType().Name.Contains("Tower") || building.GetType().Name.Contains("Wall")) return BuildingType.Defence; // Exempel
+            if (building.GetType().Name.Contains("Townhall")) return BuildingType.Building; // Exempel
+                                                                                            // Fler...
+            Debug.LogWarning($"Could not determine category for building: {building.name}");
+            return BuildingType.Building; // Generell fallback
+        }
+
+        public ProductionBuilding GetActiveBuildingForQueue()
+        {
+            if (selectedProductionBuildingInstance != null) { return selectedProductionBuildingInstance; }
             var buildingsOwned = GetCurrentBuildingData();
             if (buildingsOwned != null && buildingsOwned.TryGetValue(selectedCategoryType, out var buildingsOfType))
             {
-                 // Försök hitta den första byggnaden i listan som är en ProductionBuilding
-                 foreach(Building b in buildingsOfType)
-                 {
-                     if (b is ProductionBuilding pb) return pb; // Returnera första träffen
-                 }
+                if (buildingsOfType.Count == 1 && buildingsOfType[0] is ProductionBuilding singleProdBuilding)
+                {
+                    return singleProdBuilding;
+                }
             }
-
-            // Ingen lämplig byggnad hittades
-            // Debug.LogWarning("GetActiveBuildingForQueue() could not find a suitable ProductionBuilding!");
             return null;
         }
 
-        // Behövs inte längre här om vi castar och kollar CanQueueItems() på ProductionBuilding
-        // private bool CanQueueItems(BuildingType category, Building buildingInstance) { ... }
-
-        private Sprite GetSpriteForBuildingType(BuildingType type)
+        private Sprite GetSpriteForBuilding(Building building)
         {
-            // Försök hitta första byggnaden i databasen av den typen för att få en ikon
-            BuildableData data = buildableDatabase?.allBuildables.FirstOrDefault(b => b.category == type && b.itemType == BuildableItemType.Building);
-            return data?.icon;
+            if (building == null || buildableDatabase == null) return null;
+            // --- IMPLEMENTERA DIN LOGIK HÄR ---
+            // Försök hämta via buildableId på byggnaden
+            string idToLookup = building.buildableId; // Antagande att fältet finns
+            if (!string.IsNullOrEmpty(idToLookup))
+            {
+                BuildableData data = buildableDatabase.GetDataById(idToLookup);
+                if (data != null) return data.icon;
+            }
+            // Fallback (eller returnera null/default)
+            return null;
         }
-    }
-}
+
+        public void HandlePlayerStatusChange(PlayerStatus newStatus) { /* ... (som innan) ... */ }
+        public void ShowPowerWarning(bool show) { /* ... (som innan) ... */ }
+        public void UpdatePlayerList() { /* ... (som innan, behöver implementation) ... */ }
+        public void ShowError(string errorMessage) { /* ... (som innan) ... */ }
+        private System.Collections.IEnumerator ClearNotificationAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay); // Vänta
+
+            if (notificationText != null) // Om textfältet finns kvar...
+            {
+                if (notificationText.text.StartsWith("<color=red>")) // ...och texten är ett felmeddelande...
+                {
+                    notificationText.text = ""; // ...rensa texten.
+                }
+                // Vad händer HÄR om texten INTE börjar med <color=red>? Metoden slutar utan yield.
+            }
+            // Vad händer HÄR om notificationText är null? Metoden slutar utan yield.
+        } // <--- Kompilatorn klagar här
+
+    } // End class UIManager
+} // End namespace RTSGAME

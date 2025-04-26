@@ -298,6 +298,18 @@ namespace RTSGAME
             }
         }
 
+        /// <summary>
+        /// [Server] Checks if the player has enough credits without spending them.
+        /// </summary>
+        /// <returns>True if the player has enough credits, false otherwise.</returns>
+        [Server]
+        public bool Server_HasEnoughCredits(uint ownerNetId, int amount)
+        {
+            if (amount < 0) return false; // Kan inte ha negativ kostnad
+                                          // Använd den befintliga GetCurrentCredits för att hämta saldot och jämför
+            return GetCurrentCredits(ownerNetId) >= amount;
+        }
+
 
         // --- Getters (Server-side access) ---
 

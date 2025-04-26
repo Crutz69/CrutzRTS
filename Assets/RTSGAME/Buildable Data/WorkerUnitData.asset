@@ -12,14 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c1476cfaaf0547b768c03c479bcd2, type: 3}
   m_Name: WorkerUnitData
   m_EditorClassIdentifier: 
-  buildableName: Worker
+  displayName: Worker
   buildableId: unit_worker
   itemType: 0
   category: 1
   icon: {fileID: 21300000, guid: e42aaad4a4c1bca429622990fd6deecf, type: 3}
+  description: Item Description.
   creditCost: 250
   buildTime: 10
   prefabToBuild: {fileID: 8752011255827127689, guid: 0f536b48ceff86c4e9661334d39adb5c, type: 3}
   ghostPrefab: {fileID: 0}
+  constructionSitePrefab: {fileID: 0}
+  placementMarkerPrefab: {fileID: 0}
   isUnlockedInitially: 1
   queueBatchAmount: 5

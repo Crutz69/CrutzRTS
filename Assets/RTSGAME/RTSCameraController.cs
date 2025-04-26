@@ -3,6 +3,8 @@ using UnityEngine;
 
 public class RTSCameraController : MonoBehaviour
 {
+    private bool isActivated = false; // Starta som inaktiv
+
     [Header("Movement Speeds")]
     public float panSpeed = 20f;
     public float freeLookMoveSpeed = 15f;
@@ -58,8 +60,11 @@ public class RTSCameraController : MonoBehaviour
 
     void Update()
     {
-        HandleFreeLookToggleInput();
+        // Kör bara om aktiverad för den lokala spelaren
+        if (!isActivated) return;
 
+        // Resten av din befintliga Update-kod...
+        HandleFreeLookToggleInput();
         if (isFreeLookActive)
         {
             HandleFreeLookRotation();
@@ -235,5 +240,14 @@ public class RTSCameraController : MonoBehaviour
         pos.x = Mathf.Clamp(pos.x, panLimitX.x, panLimitX.y);
         pos.z = Mathf.Clamp(pos.z, panLimitZ.x, panLimitZ.y);
         transform.position = pos;
+    }
+
+    /// <summary>
+    /// Aktiverar kamerakontrollern. Anropas av NetworkPlayer för den lokala spelaren.
+    /// </summary>
+    public void ActivateForLocalPlayer()
+    {
+        isActivated = true;
+        // Valfritt: Säkerställ att kameran är korrekt positionerad/konfad för spelaren här?
     }
 } // End of class

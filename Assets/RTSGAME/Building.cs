@@ -100,6 +100,9 @@ namespace RTSGAME
         public bool IsBeingCaptured => isBeingCaptured;
         public float CaptureProgress => captureProgress;
         public float CaptureDuration => captureDuration;
+
+        public string buildableId; // Eller gör den till [SyncVar] om klienten behöver veta det av andra skäl
+
         // public uint CapturingWorkerNetId => capturingWorkerNetId; // Exponerad via variabel ovan
 
         // --- Events ---
@@ -557,6 +560,32 @@ namespace RTSGAME
             // Kontrollera om den anslutning som skickar kommandot äger detta objekt
             // Fungerar om objektet har Network Authority satt till klienten ELLER om vi kollar mot OwnerNetId.
             return conn != null && OwnerNetId != 0 && conn.identity != null && conn.identity.netId == OwnerNetId;
+        }
+
+        /// <summary>
+        /// [Server] Försöker lägga till ett objekt i produktionskön.
+        /// Basklassens implementation returnerar alltid false (kan ej köa).
+        /// Överskuggas (override) i klasser som kan producera (t.ex. ProductionBuilding).
+        /// </summary>
+        [Server]
+        public virtual bool Server_QueueItem(string buildableId, int quantity)
+        {
+            // Byggnader kan inte köa saker som standard
+            Debug.LogWarning($"Attempted to queue item '{buildableId}' at building '{this.BuildingName}' which is not a production building.");
+            return false;
+        }
+
+        /// <summary>
+        /// [Server] Hanterar högerklick på ett objekt i produktionskön.
+        /// Basklassens implementation gör ingenting.
+        /// Överskuggas (override) i klasser som har en kö (t.ex. ProductionBuilding).
+        /// </summary>
+        /// <param name="queueIndex">Indexet i kön som klickades på (-1 om det var det aktiva objektet?).</param>
+        [Server]
+        public virtual void Server_HandleRightClickOnQueue(int queueIndex)
+        {
+            // Gör ingenting som standard för byggnader som inte har en kö.
+            Debug.LogWarning($"Server_HandleRightClickOnQueue called on building '{this.BuildingName}' which does not handle queues this way.");
         }
 
     } // End class Building

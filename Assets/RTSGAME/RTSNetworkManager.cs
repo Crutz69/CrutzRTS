@@ -97,8 +97,8 @@ namespace RTSGAME
 
             // Registrera hos managers
             PlayerManager.Instance?.Server_RegisterPlayer(newPlayer);
-            int startCredits = 4000; int startMana = 0; int startMaxMana = 100; // Startvärden
-            ResourceManager.Instance?.Server_RegisterPlayer(ownerId, startCredits, startMana, startMaxMana);
+            int startCredits = 4000; // Startvärden
+            ResourceManager.Instance?.Server_RegisterPlayer(ownerId, startCredits);
 
             // Spawna Startenheter vid spelarens spawn point
             Server_SpawnStartingUnits(conn, newPlayer, spawnPoint != null ? spawnPoint.position : Vector3.zero);

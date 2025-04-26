@@ -28,10 +28,13 @@ namespace RTSGAME
         [Header("Component References")]
         [SerializeField] protected Health healthComponent;
         [SerializeField] protected UnitMovement movementComponent;
+        public float CurrentHealth => healthComponent != null ? healthComponent.CurrentHealth : 0f;
+        public float MaxHealth => healthComponent != null ? healthComponent.MaxHealth : 1f;
         [SerializeField] protected NetworkTransformUnreliable networkTransform; // <-- ÄNDRAD till konkret klass
         [SerializeField] protected Renderer mainRenderer; // För färg/highlight
         [SerializeField] protected Collider unitCollider;
         [SerializeField] protected Animator animator; // Om animationer används
+
 
         [Header("Visuals")]
         [SerializeField] protected GameObject selectionIndicator;

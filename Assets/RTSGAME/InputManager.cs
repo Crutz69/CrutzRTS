@@ -17,14 +17,6 @@ namespace RTSGAME
         // Ta bort om du har separat Camera Controller
         [SerializeField] private Transform cameraTransform;
 
-        [Header("Camera Controls (Basic - Remove if using separate controller)")]
-        [SerializeField] private float cameraMoveSpeed = 20f;
-        [SerializeField] private float cameraRotateSpeed = 100f;
-        [SerializeField] private float cameraZoomSpeed = 5f;
-        [SerializeField] private float edgeScrollThreshold = 25f; // Pixlar från kanten
-        [SerializeField] private Vector2 cameraHeightMinMax = new Vector2(10f, 80f);
-        [SerializeField] private float cameraGroundOffset = 2f; // För att förhindra att kameran går under marken vid rotation
-
         [Header("Input Settings")]
         [SerializeField] private LayerMask groundLayerMask = 1 << 0; // Antag att marken är på Default layer
 
@@ -77,78 +69,25 @@ namespace RTSGAME
             // Kör INTE input-hantering om pekaren är över UI (gäller klick/box, inte kamera/hotkeys?)
             bool pointerOverUI = IsPointerOverUIObject();
 
-            HandleCameraMovementInput(); // Flytta kamera
             HandleMouseInput(pointerOverUI);   // Hantera musklick/box
             HandleKeyboardInput(); // Hantera kortkommandon
         }
 
-        // --- Kamera Kontroll (Enkel) ---
-        void HandleCameraMovementInput()
-        {
-            // Ta bort eller anpassa om du har en separat Camera Controller
-            if (cameraTransform == null) return;
-
-            Vector3 moveInput = Vector3.zero;
-            Vector2 mousePos = Mouse.current.position.ReadValue();
-
-            // WASD
-            if (Keyboard.current.wKey.isPressed) moveInput += cameraTransform.forward;
-            if (Keyboard.current.sKey.isPressed) moveInput -= cameraTransform.forward;
-            if (Keyboard.current.aKey.isPressed) moveInput -= cameraTransform.right;
-            if (Keyboard.current.dKey.isPressed) moveInput += cameraTransform.right;
-
-            // Muskant
-            if (mousePos.x <= edgeScrollThreshold && mousePos.x >= 0) moveInput -= cameraTransform.right;
-            if (mousePos.x >= Screen.width - edgeScrollThreshold && mousePos.x <= Screen.width) moveInput += cameraTransform.right;
-            if (mousePos.y <= edgeScrollThreshold && mousePos.y >= 0) moveInput -= cameraTransform.forward;
-            if (mousePos.y >= Screen.height - edgeScrollThreshold && mousePos.y <= Screen.height) moveInput += cameraTransform.forward;
-
-            // Normalisera och applicera rörelse (endast X och Z)
-            moveInput.y = 0;
-            if (moveInput.sqrMagnitude > 0.1f)
-            {
-                cameraTransform.position += moveInput.normalized * cameraMoveSpeed * Time.deltaTime;
-            }
-
-            // Rotation (Q/E eller Mittenmusknapp?)
-            float rotateInput = 0f;
-            if (Keyboard.current.qKey.isPressed) rotateInput += 1f;
-            if (Keyboard.current.eKey.isPressed) rotateInput -= 1f;
-            // if (Mouse.current.middleButton.isPressed) { rotateInput += Mouse.current.delta.ReadValue().x * 0.1f; } // Mittenmus-rotation
-
-            if (Mathf.Abs(rotateInput) > 0.1f)
-            {
-                cameraTransform.Rotate(Vector3.up, rotateInput * cameraRotateSpeed * Time.deltaTime, Space.World);
-            }
-
-            // Zoom (Scrollhjul)
-            float scrollInput = Mouse.current.scroll.ReadValue().y;
-            if (Mathf.Abs(scrollInput) > 0.1f)
-            {
-                // Flytta kameran framåt/bakåt längs sin lokala Z-axel (eller ändra Y-höjd)
-                // Enklast: ändra Y-höjd direkt
-                Vector3 pos = cameraTransform.position;
-                pos.y -= scrollInput * cameraZoomSpeed * 0.1f; // Skala ner scroll-värdet
-                pos.y = Mathf.Clamp(pos.y, cameraHeightMinMax.x, cameraHeightMinMax.y);
-                cameraTransform.position = pos;
-            }
-
-            // Förhindra att kameran går under marken vid låg vinkel (Raycast neråt)
-            if (Physics.Raycast(cameraTransform.position, Vector3.down, out RaycastHit groundHit, cameraHeightMinMax.y * 2, groundLayerMask))
-            {
-                if (cameraTransform.position.y < groundHit.point.y + cameraGroundOffset)
-                {
-                    Vector3 clampedPos = cameraTransform.position;
-                    clampedPos.y = groundHit.point.y + cameraGroundOffset;
-                    cameraTransform.position = clampedPos;
-                }
-            }
-        }
-
-
         // --- Mus Input ---
         void HandleMouseInput(bool pointerOverUI)
         {
+            if (selectionManager == null)
+            {
+                // Detta borde inte hända om Execution Order är rätt, men bra att ha kollen.
+                Debug.LogError("SelectionManager is NULL in HandleMouseInput! Cannot process mouse input.");
+                return; // Avsluta om SelectionManager saknas
+            }
+            if (Mouse.current == null)
+            {
+                // Detta är en trolig orsak till NRE om Input System inte är redo.
+                Debug.LogError("Mouse.current is NULL! Check Input System setup/initialization.");
+                return; // Avsluta om Input System inte hittar musen
+            }
             // Om vi är i ett speciellt läge, hantera det först
             if (isAttackMoveActive)
             {

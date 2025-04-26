@@ -50,6 +50,9 @@ namespace RTSGAME // *** Lades till för att matcha resten av koden ***
         [Tooltip("Byggarbetsplats-prefab som spawnas först (ENDAST FÖR Buildings!)")]
         public GameObject constructionSitePrefab; // *** Lades till! Ska bara användas om itemType == BuildableItemType.Building ***
 
+        [Tooltip("Ghost Struckture prefab innan placerad)")]
+        public GameObject placementMarkerPrefab;
+
         // TODO: Implementera prerequisites om det behövs
         // public List<BuildableData> prerequisites; // Lista på andra BuildableData som krävs
         // public int requiredTechTier = 1;

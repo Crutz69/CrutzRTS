@@ -12,14 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c1476cfaaf0547b768c03c479bcd2, type: 3}
   m_Name: HarvesterData
   m_EditorClassIdentifier: 
-  buildableName: Harvester Golem
+  displayName: Harvester
   buildableId: Harvester__Golem
   itemType: 0
   category: 7
   icon: {fileID: 21300000, guid: 58a1a4df7153fb14da4cdbf5cfee76ac, type: 3}
+  description: Item Description.
   creditCost: 1200
   buildTime: 16
   prefabToBuild: {fileID: 3828074620251132450, guid: 6b8a4a14c39919c46be5ef0a04edece5, type: 3}
   ghostPrefab: {fileID: 0}
+  constructionSitePrefab: {fileID: 0}
+  placementMarkerPrefab: {fileID: 0}
   isUnlockedInitially: 1
   queueBatchAmount: 5

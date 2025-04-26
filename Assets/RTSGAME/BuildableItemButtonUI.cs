@@ -136,12 +136,12 @@ public class BuildableItemButtonUI : MonoBehaviour, IPointerClickHandler
             // UIManager sköter logiken att hitta rätt byggnad och skicka command
             uiManager.OnBuildableItemClicked(buildableData);
 
-            Debug.Log($"Left Click on {buildableData.buildableName}, Amount: {amount}"); // Amount används inte direkt
+            Debug.Log($"Left Click on {buildableData.displayName}, Amount: {amount}"); // Amount används inte direkt
         }
         else if (eventData.button == PointerEventData.InputButton.Right)
         {
             // Högerklick logik för paus/avbryt
-            Debug.Log($"Right Click on {buildableData.buildableName}");
+            Debug.Log($"Right Click on {buildableData.displayName}");
 
             // *** ÄNDRING: Anropar uiManager ***
             // Hämta aktiv produktionsbyggnad via UIManager
